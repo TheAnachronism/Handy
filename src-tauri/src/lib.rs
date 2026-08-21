@@ -10,6 +10,7 @@ mod clipboard;
 mod commands;
 mod helpers;
 mod input;
+mod live_insertion;
 mod llm_client;
 mod managers;
 mod memory;
