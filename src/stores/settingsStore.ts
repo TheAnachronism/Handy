@@ -136,6 +136,8 @@ const settingUpdaters: {
   reliable_paste: (value) =>
     commands.changeReliablePasteSetting(value as boolean),
   paste_method: (value) => commands.changePasteMethodSetting(value as string),
+  live_insertion: (value) =>
+    commands.changeLiveInsertionSetting(value as boolean),
   typing_tool: (value) => commands.changeTypingToolSetting(value as string),
   external_script_path: (value) =>
     commands.changeExternalScriptPathSetting(value as string | null),

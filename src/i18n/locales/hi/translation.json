@@ -197,6 +197,10 @@
       "pushToTalk": {
         "label": "पुश टू टॉक",
         "description": "रिकॉर्ड करने के लिए दबाकर रखें, रोकने के लिए छोड़ दें"
+      },
+      "liveInsertion": {
+        "label": "Live Insertion",
+        "description": "Insert committed transcript into the focused app while you speak. Overlay style is separate. If the selected model cannot stream, dictation uses Batch Insertion instead and you will see a one-time notice."
       }
     },
     "models": {
@@ -654,7 +658,9 @@
     "modelLoadFailedUnknown": "अज्ञात मॉडल",
     "pasteFailedTitle": "टेक्स्ट पेस्ट नहीं हो सका",
     "pasteFailed": "खुले हुए ऐप्लिकेशन में टेक्स्ट पेस्ट नहीं किया जा सका.",
-    "transcriptionFailedTitle": "ट्रांसक्रिप्शन नहीं हो सका"
+    "transcriptionFailedTitle": "ट्रांसक्रिप्शन नहीं हो सका",
+    "liveInsertionFallbackTitle": "Live Insertion unavailable",
+    "liveInsertionFallback": "This model cannot stream, so text will be inserted when you stop dictating."
   },
   "appLanguage": {
     "title": "ऐप्लिकेशन की भाषा",

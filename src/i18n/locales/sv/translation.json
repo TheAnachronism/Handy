@@ -197,6 +197,10 @@
       "pushToTalk": {
         "label": "Tryck för att tala",
         "description": "Håll ned för att spela in, släpp för att stoppa"
+      },
+      "liveInsertion": {
+        "label": "Live Insertion",
+        "description": "Insert committed transcript into the focused app while you speak. Overlay style is separate. If the selected model cannot stream, dictation uses Batch Insertion instead and you will see a one-time notice."
       }
     },
     "models": {
@@ -651,7 +655,9 @@
     "noInputDevice": "Ingen ljudenhet hittades. Anslut en mikrofon eller ett headset och försök igen.",
     "pasteFailedTitle": "Det gick inte att klistra in texten",
     "pasteFailed": "Texten kunde inte klistras in i det aktiva programmet.",
-    "transcriptionFailedTitle": "Transkriptionen misslyckades"
+    "transcriptionFailedTitle": "Transkriptionen misslyckades",
+    "liveInsertionFallbackTitle": "Live Insertion unavailable",
+    "liveInsertionFallback": "This model cannot stream, so text will be inserted when you stop dictating."
   },
   "appLanguage": {
     "title": "Applikationsspråk",

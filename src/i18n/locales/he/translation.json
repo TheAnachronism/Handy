@@ -197,6 +197,10 @@
       "pushToTalk": {
         "label": "לחץ כדי לדבר",
         "description": "החזק כדי להקליט, שחרר כדי לעצור"
+      },
+      "liveInsertion": {
+        "label": "Live Insertion",
+        "description": "Insert committed transcript into the focused app while you speak. Overlay style is separate. If the selected model cannot stream, dictation uses Batch Insertion instead and you will see a one-time notice."
       }
     },
     "models": {
@@ -651,7 +655,9 @@
     "modelLoadFailedUnknown": "מודל לא ידוע",
     "pasteFailedTitle": "ההדבקה נכשלה",
     "pasteFailed": "לא ניתן היה להדביק את הטקסט ביישום הפעיל.",
-    "transcriptionFailedTitle": "התמלול נכשל"
+    "transcriptionFailedTitle": "התמלול נכשל",
+    "liveInsertionFallbackTitle": "Live Insertion unavailable",
+    "liveInsertionFallback": "This model cannot stream, so text will be inserted when you stop dictating."
   },
   "appLanguage": {
     "title": "שפת האפליקציה",

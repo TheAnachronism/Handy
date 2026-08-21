@@ -217,6 +217,10 @@
       "pushToTalk": {
         "label": "Bas Konuş",
         "description": "Kaydetmek için basılı tutun, durdurmak için bırakın"
+      },
+      "liveInsertion": {
+        "label": "Live Insertion",
+        "description": "Insert committed transcript into the focused app while you speak. Overlay style is separate. If the selected model cannot stream, dictation uses Batch Insertion instead and you will see a one-time notice."
       }
     },
     "sound": {
@@ -651,7 +655,9 @@
     "modelLoadFailedUnknown": "bilinmeyen model",
     "pasteFailedTitle": "Metin yapıştırılamadı",
     "pasteFailed": "Metin etkin uygulamaya yapıştırılamadı.",
-    "transcriptionFailedTitle": "Transkripsiyon başarısız oldu"
+    "transcriptionFailedTitle": "Transkripsiyon başarısız oldu",
+    "liveInsertionFallbackTitle": "Live Insertion unavailable",
+    "liveInsertionFallback": "This model cannot stream, so text will be inserted when you stop dictating."
   },
   "appLanguage": {
     "title": "Uygulama Dili",

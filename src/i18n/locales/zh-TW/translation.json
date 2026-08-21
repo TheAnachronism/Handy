@@ -197,6 +197,10 @@
       "pushToTalk": {
         "label": "按住說話",
         "description": "按住錄製，放開停止"
+      },
+      "liveInsertion": {
+        "label": "Live Insertion",
+        "description": "Insert committed transcript into the focused app while you speak. Overlay style is separate. If the selected model cannot stream, dictation uses Batch Insertion instead and you will see a one-time notice."
       }
     },
     "models": {
@@ -651,7 +655,9 @@
     "modelLoadFailedUnknown": "未知模型",
     "pasteFailedTitle": "貼上文字失敗",
     "pasteFailed": "無法將文字貼上至目前作用中的應用程式。",
-    "transcriptionFailedTitle": "轉錄失敗"
+    "transcriptionFailedTitle": "轉錄失敗",
+    "liveInsertionFallbackTitle": "Live Insertion unavailable",
+    "liveInsertionFallback": "This model cannot stream, so text will be inserted when you stop dictating."
   },
   "appLanguage": {
     "title": "應用程式語言",

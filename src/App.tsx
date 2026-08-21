@@ -23,6 +23,8 @@ import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
 
 type OnboardingStep = "accessibility" | "model" | "done";
 
+let liveInsertionFallbackNoticed = false;
+
 const renderSettingsContent = (section: SidebarSection) => {
   const ActiveComponent =
     SECTIONS_CONFIG[section]?.component || SECTIONS_CONFIG.general.component;
@@ -119,6 +121,22 @@ function App() {
           t("errors.recordingFailed", { error: detail ?? "Unknown error" }),
         );
       }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [t]);
+
+  // One-shot notice when Live Insertion is on but the model cannot stream.
+  useEffect(() => {
+    const unlisten = listen("live-insertion-inactive", () => {
+      if (liveInsertionFallbackNoticed) {
+        return;
+      }
+      liveInsertionFallbackNoticed = true;
+      toast.info(t("errors.liveInsertionFallbackTitle"), {
+        description: t("errors.liveInsertionFallback"),
+      });
     });
     return () => {
       unlisten.then((fn) => fn());

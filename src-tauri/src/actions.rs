@@ -534,6 +534,9 @@ impl ShortcutAction for TranscribeAction {
                         == ClipboardHandling::CopyToClipboard,
                 },
             );
+            if !model_supports_streaming {
+                let _ = app.emit("live-insertion-inactive", ());
+            }
         }
         let plan_elapsed = plan_started.elapsed();
 

@@ -197,6 +197,10 @@
       "pushToTalk": {
         "label": "Push-to-talk",
         "description": "Ingedrukt houden om op te nemen, loslaten om te stoppen"
+      },
+      "liveInsertion": {
+        "label": "Live Insertion",
+        "description": "Insert committed transcript into the focused app while you speak. Overlay style is separate. If the selected model cannot stream, dictation uses Batch Insertion instead and you will see a one-time notice."
       }
     },
     "models": {
@@ -654,7 +658,9 @@
     "modelLoadFailedUnknown": "onbekend model",
     "pasteFailedTitle": "Tekst plakken mislukt",
     "pasteFailed": "Tekst kon niet worden geplakt in de actieve applicatie.",
-    "transcriptionFailedTitle": "Transcriptie mislukt"
+    "transcriptionFailedTitle": "Transcriptie mislukt",
+    "liveInsertionFallbackTitle": "Live Insertion unavailable",
+    "liveInsertionFallback": "This model cannot stream, so text will be inserted when you stop dictating."
   },
   "appLanguage": {
     "title": "Interfacetaal",

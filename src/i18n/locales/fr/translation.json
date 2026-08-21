@@ -217,6 +217,10 @@
       "pushToTalk": {
         "label": "Appuyer pour parler",
         "description": "Maintenez pour enregistrer, relâchez pour arrêter"
+      },
+      "liveInsertion": {
+        "label": "Live Insertion",
+        "description": "Insert committed transcript into the focused app while you speak. Overlay style is separate. If the selected model cannot stream, dictation uses Batch Insertion instead and you will see a one-time notice."
       }
     },
     "sound": {
@@ -651,7 +655,9 @@
     "modelLoadFailedUnknown": "modèle inconnu",
     "pasteFailedTitle": "Échec du collage du texte",
     "pasteFailed": "Le texte n'a pas pu être collé dans l'application active.",
-    "transcriptionFailedTitle": "Échec de la transcription"
+    "transcriptionFailedTitle": "Échec de la transcription",
+    "liveInsertionFallbackTitle": "Live Insertion unavailable",
+    "liveInsertionFallback": "This model cannot stream, so text will be inserted when you stop dictating."
   },
   "appLanguage": {
     "title": "Langue de l'application",

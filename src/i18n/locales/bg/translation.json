@@ -197,6 +197,10 @@
       "pushToTalk": {
         "label": "Натискане за говорене",
         "description": "Задръжте за запис, пуснете за спиране"
+      },
+      "liveInsertion": {
+        "label": "Live Insertion",
+        "description": "Insert committed transcript into the focused app while you speak. Overlay style is separate. If the selected model cannot stream, dictation uses Batch Insertion instead and you will see a one-time notice."
       }
     },
     "models": {
@@ -651,7 +655,9 @@
     "modelLoadFailedUnknown": "неизвестен модел",
     "pasteFailedTitle": "Неуспешно поставяне на текст",
     "pasteFailed": "Текстът не можа да бъде поставен в активното приложение.",
-    "transcriptionFailedTitle": "Неуспешна транскрипция"
+    "transcriptionFailedTitle": "Неуспешна транскрипция",
+    "liveInsertionFallbackTitle": "Live Insertion unavailable",
+    "liveInsertionFallback": "This model cannot stream, so text will be inserted when you stop dictating."
   },
   "appLanguage": {
     "title": "Език на приложението",

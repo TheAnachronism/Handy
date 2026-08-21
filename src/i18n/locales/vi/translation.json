@@ -217,6 +217,10 @@
       "pushToTalk": {
         "label": "Nhấn để nói",
         "description": "Giữ để ghi âm, thả để dừng"
+      },
+      "liveInsertion": {
+        "label": "Live Insertion",
+        "description": "Insert committed transcript into the focused app while you speak. Overlay style is separate. If the selected model cannot stream, dictation uses Batch Insertion instead and you will see a one-time notice."
       }
     },
     "sound": {
@@ -651,7 +655,9 @@
     "modelLoadFailedUnknown": "mô hình không xác định",
     "pasteFailedTitle": "Không thể dán văn bản",
     "pasteFailed": "Không thể dán văn bản vào ứng dụng đang hoạt động.",
-    "transcriptionFailedTitle": "Phiên âm thất bại"
+    "transcriptionFailedTitle": "Phiên âm thất bại",
+    "liveInsertionFallbackTitle": "Live Insertion unavailable",
+    "liveInsertionFallback": "This model cannot stream, so text will be inserted when you stop dictating."
   },
   "appLanguage": {
     "title": "Ngôn ngữ ứng dụng",
