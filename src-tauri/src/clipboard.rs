@@ -698,8 +698,12 @@ fn paste_via_external_script(text: &str, script_path: &str) -> Result<(), String
     Ok(())
 }
 
-/// Types text directly by simulating individual key presses.
-fn paste_direct(
+/// Types `text` as-is by simulating key presses.
+///
+/// This is the Direct insertion primitive: no trailing-space wrapping, auto-submit,
+/// clipboard save/restore, paste delays, or clipboard paste chords. Linux still uses
+/// the preferred typing tool, then falls back to enigo.
+pub(crate) fn type_text_direct(
     text: &str,
     app_handle: &AppHandle,
     #[cfg(target_os = "linux")] typing_tool: TypingTool,
@@ -713,6 +717,22 @@ fn paste_direct(
     }
 
     with_enigo(app_handle, |enigo| input::paste_text_direct(enigo, text))
+}
+
+/// Batch Insertion wrapping for [`paste`]: optional trailing space.
+/// Direct typing ([`type_text_direct`]) does not apply this.
+fn wrap_batch_paste_text(text: String, append_trailing_space: bool) -> String {
+    if append_trailing_space {
+        format!("{} ", text)
+    } else {
+        text
+    }
+}
+
+/// Live/direct type wrapping: the string is used unchanged (no trailing space).
+#[cfg(test)]
+fn wrap_direct_type_text(text: String) -> String {
+    text
 }
 
 pub(crate) fn send_return_key(enigo: &mut Enigo, key_type: AutoSubmitKey) -> Result<(), String> {
@@ -768,12 +788,8 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
     let paste_delay_ms = settings.paste_delay_ms;
     let paste_delay_after_ms = settings.paste_delay_after_ms;
 
-    // Append trailing space if setting is enabled
-    let text = if settings.append_trailing_space {
-        format!("{} ", text)
-    } else {
-        text
-    };
+    // Append trailing space if setting is enabled (before Direct or clipboard paste).
+    let text = wrap_batch_paste_text(text, settings.append_trailing_space);
 
     info!(
         "Using paste method: {:?}, delay before: {}ms, delay after: {}ms",
@@ -786,7 +802,7 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
             info!("PasteMethod::None selected - skipping paste action");
         }
         PasteMethod::Direct => {
-            paste_direct(
+            type_text_direct(
                 &text,
                 &app_handle,
                 #[cfg(target_os = "linux")]
@@ -964,5 +980,37 @@ e.g. 28:1 28:0 means pressing on the Enter button on a standard US keyboard.
 
         assert_eq!(result.unwrap_err(), "input failed");
         assert!(restored.get());
+    }
+
+    #[test]
+    fn batch_paste_wrap_appends_trailing_space_when_enabled() {
+        assert_eq!(wrap_batch_paste_text("hello".into(), true), "hello ");
+    }
+
+    #[test]
+    fn batch_paste_wrap_leaves_text_when_disabled() {
+        assert_eq!(wrap_batch_paste_text("hello".into(), false), "hello");
+    }
+
+    #[test]
+    fn direct_type_wrap_never_appends_trailing_space() {
+        assert_eq!(wrap_direct_type_text("hello".into()), "hello");
+        assert_ne!(
+            wrap_direct_type_text("hello".into()),
+            wrap_batch_paste_text("hello".into(), true)
+        );
+    }
+
+    #[test]
+    fn paste_applies_batch_wrap_before_direct_typing() {
+        let transcript = "committed";
+        let batch_text = wrap_batch_paste_text(transcript.into(), true);
+        let live_text = wrap_direct_type_text(transcript.into());
+
+        assert_eq!(batch_text, "committed ");
+        assert_eq!(live_text, "committed");
+        // paste() uses wrap_batch_paste_text, then type_text_direct(&text, ...).
+        // type_text_direct itself never re-applies wrap_batch_paste_text.
+        assert_eq!(wrap_direct_type_text(batch_text.clone()), batch_text);
     }
 }
