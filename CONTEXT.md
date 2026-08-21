@@ -43,3 +43,11 @@ _Avoid_: paste target, focused window (unless talking about OS focus)
 **Cancel**:
 Aborting a Dictation Session without treating it as a normal stop. Capture ends, leftover Tentative Transcript is discarded, and Handy does not insert further text. Already-inserted Committed Transcript is left in the Target Application.
 _Avoid_: undo dictation, discard session
+
+**Lookahead**:
+Extra audio a streaming model waits for before promoting Tentative Transcript to Committed Transcript. Live Insertion uses a shorter Lookahead than Batch Insertion so commits happen sooner; accuracy can drop.
+_Avoid_: right context, att_context, latency setting (unless naming a user control)
+
+**Silence Feeding**:
+During Live Insertion, every microphone frame — speech and silence — is given to the streaming model for the whole Dictation Session so Lookahead can finish without the user stopping. Silence still does not auto-stop the session or auto-finalize Tentative Transcript.
+_Avoid_: VAD bypass, always-on stream, endpointing

@@ -1,5 +1,8 @@
 use crate::clipboard::type_live_insertion_text;
-use crate::live_insertion::{LiveInsertionCommand, LiveInsertionOptions, LiveInsertionPolicy};
+use crate::live_insertion::{
+    lookahead_for_live_insertion, should_feed_silence_to_stream, LiveInsertionCommand,
+    LiveInsertionOptions, LiveInsertionPolicy, LiveLookahead,
+};
 use crate::audio_toolkit::{
     apply_custom_words, detect_output_language, normalize_transcription_output,
     remove_filler_words, OutputLanguageEvidence,
@@ -22,7 +25,9 @@ use std::time::{Duration, Instant, SystemTime};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_specta::Event;
 use transcribe_cpp::{
-    Backend, Feature, Model, ModelOptions, RunExtension, RunOptions, Session, StreamOptions, Task,
+    sys::{TRANSCRIBE_EXT_KIND_PARAKEET_BUFFERED_STREAM, TRANSCRIBE_EXT_KIND_PARAKEET_STREAM},
+    Backend, ExtSlot, Feature, Model, ModelOptions, ParakeetBufferedStreamOptions,
+    ParakeetStreamOptions, RunExtension, RunOptions, Session, StreamExtension, StreamOptions, Task,
     WhisperRunOptions,
 };
 use transcribe_rs::{
@@ -127,6 +132,8 @@ pub struct StreamRouter {
     /// True while a stream is pending or active (channel is open). The audio
     /// callback checks this first to avoid the mutex lock when no stream runs.
     open: Arc<AtomicBool>,
+    /// When true, VAD Noise frames are also fed so Lookahead can finish.
+    silence_feeding: Arc<AtomicBool>,
 }
 
 impl StreamRouter {
@@ -134,6 +141,7 @@ impl StreamRouter {
         Self {
             tx: Mutex::new(None),
             open: Arc::new(AtomicBool::new(false)),
+            silence_feeding: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -151,6 +159,7 @@ impl StreamRouter {
     /// sender so the caller can send the final `Finalize`/`Cancel` command.
     fn take(&self) -> Option<mpsc::Sender<StreamCmd>> {
         self.open.store(false, Ordering::Relaxed);
+        self.silence_feeding.store(false, Ordering::Relaxed);
         self.tx.lock().unwrap().take()
     }
 
@@ -158,6 +167,7 @@ impl StreamRouter {
     /// when the worker exits without a finalize/cancel handshake).
     fn clear(&self) {
         self.open.store(false, Ordering::Relaxed);
+        self.silence_feeding.store(false, Ordering::Relaxed);
         *self.tx.lock().unwrap() = None;
     }
 
@@ -172,11 +182,59 @@ impl StreamRouter {
         }
     }
 
+    pub fn set_silence_feeding(&self, live_insertion_active: bool) {
+        self.silence_feeding.store(
+            should_feed_silence_to_stream(live_insertion_active),
+            Ordering::Relaxed,
+        );
+    }
+
+    pub fn silence_feeding_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.silence_feeding)
+    }
+
+    /// VAD Noise / silence. No-op unless Live Insertion Silence Feeding is on.
+    pub fn feed_silence(&self, frame: &[f32]) {
+        if !self.silence_feeding.load(Ordering::Relaxed) {
+            return;
+        }
+        self.feed(frame);
+    }
+
     /// Whether a stream is pending or active.
     pub fn is_open(&self) -> bool {
         self.open.load(Ordering::Relaxed)
     }
 }
+
+
+fn stream_options_for_live_lookahead(live_insertion_active: bool, model: &Model) -> StreamOptions {
+    let lookahead = lookahead_for_live_insertion(
+        live_insertion_active,
+        model.accepts_ext(ExtSlot::Stream, TRANSCRIBE_EXT_KIND_PARAKEET_STREAM),
+        model.accepts_ext(ExtSlot::Stream, TRANSCRIBE_EXT_KIND_PARAKEET_BUFFERED_STREAM),
+    );
+    match lookahead {
+        LiveLookahead::Default => StreamOptions::default(),
+        LiveLookahead::CacheAware { att_context_right } => StreamOptions {
+            family: Some(StreamExtension::ParakeetStream(ParakeetStreamOptions {
+                att_context_right: Some(att_context_right),
+            })),
+            ..Default::default()
+        },
+        LiveLookahead::ChunkedBuffered { chunk_ms, right_ms } => StreamOptions {
+            family: Some(StreamExtension::ParakeetBuffered(
+                ParakeetBufferedStreamOptions {
+                    left_ms: None,
+                    chunk_ms: Some(chunk_ms),
+                    right_ms: Some(right_ms),
+                },
+            )),
+            ..Default::default()
+        },
+    }
+}
+
 
 enum LoadedEngine {
     /// Whisper-family models (whisper, breeze-asr, custom .bin/.gguf) via
@@ -806,7 +864,7 @@ impl TranscriptionManager {
     /// model can't stream, the worker idles until finalize/cancel and reports
     /// `None` so the caller falls back to batch transcription. Frames sent
     /// before the stream begins queue on the channel and are not lost.
-    pub fn start_stream(&self) {
+    pub fn start_stream(&self, live_insertion_active: bool) {
         if self.router.is_open() || self.active_stream_worker.load(Ordering::Acquire) != 0 {
             warn!("start_stream called while a stream worker is already active");
             return;
@@ -821,13 +879,19 @@ impl TranscriptionManager {
             return;
         }
         let rx = self.router.open();
+        self.router.set_silence_feeding(live_insertion_active);
         self.stream_active.store(false, Ordering::Release);
 
         let manager = self.clone();
-        thread::spawn(move || manager.run_stream_worker(rx, worker_id));
+        thread::spawn(move || manager.run_stream_worker(rx, worker_id, live_insertion_active));
     }
 
-    fn run_stream_worker(&self, rx: mpsc::Receiver<StreamCmd>, worker_id: u64) {
+    fn run_stream_worker(
+        &self,
+        rx: mpsc::Receiver<StreamCmd>,
+        worker_id: u64,
+        live_insertion_active: bool,
+    ) {
         let _worker = StreamWorkerGuard {
             worker_id,
             active_stream_worker: Arc::clone(&self.active_stream_worker),
@@ -961,9 +1025,11 @@ impl TranscriptionManager {
             // call `session.model()` once it exists.
             let backend = session.model().backend();
 
-            // StreamOptions::default() uses CommitPolicy::Auto and lets the
-            // family pick its own streaming strategy (no family-specific ext).
-            let mut stream = match session.stream(&run_options, &StreamOptions::default()) {
+            let stream_opts = stream_options_for_live_lookahead(
+                live_insertion_active,
+                &session.model(),
+            );
+            let mut stream = match session.stream(&run_options, &stream_opts) {
                 Ok(s) => s,
                 Err(e) => {
                     error!("Failed to begin stream: {}", e);
@@ -974,8 +1040,8 @@ impl TranscriptionManager {
             self.stream_active.store(true, Ordering::Release);
             self.touch_activity();
             info!(
-                "Live streaming transcription started (model '{}', backend '{}')",
-                model_id, backend
+                "Live streaming transcription started (model '{}', backend '{}', live_insertion={})",
+                model_id, backend, live_insertion_active
             );
 
             let mut perf = StreamPerf::new();

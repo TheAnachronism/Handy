@@ -519,8 +519,10 @@ impl ShortcutAction for TranscribeAction {
         } else {
             VadPolicy::Offline
         };
+        let live_insertion_active =
+            !self.post_process && settings.live_insertion && model_supports_streaming;
         if model_supports_streaming {
-            tm.start_stream();
+            tm.start_stream(live_insertion_active);
         }
         // Live Insertion is Plain Dictation only. Post-process stays Batch Insertion.
         if !self.post_process && settings.live_insertion {

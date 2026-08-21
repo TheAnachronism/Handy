@@ -77,6 +77,10 @@ pub struct AudioRecorder {
     vad: Option<VadConfig>,
     level_cb: Option<Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>>,
     audio_cb: Option<AudioFrameCallback>,
+    noise_cb: Option<AudioFrameCallback>,
+    /// When true, the stream gets each 30 ms frame once (speech and silence),
+    /// not the VAD prefill blob.
+    stream_every_frame: Option<Arc<AtomicBool>>,
     /// Which input channel to use. None = average all (original behavior).
     selected_channel: Option<usize>,
     /// Preferred stream config cached per device name. The two HAL property
@@ -99,6 +103,8 @@ impl AudioRecorder {
             vad: None,
             level_cb: None,
             audio_cb: None,
+            noise_cb: None,
+            stream_every_frame: None,
             selected_channel: None,
             config_cache: Arc::new(Mutex::new(None)),
             stream_error: Arc::new(AtomicBool::new(false)),
@@ -142,6 +148,21 @@ impl AudioRecorder {
         self
     }
 
+    /// Frames the VAD classified as Noise. Used for Live Insertion Silence Feeding
+    /// without putting silence into the Batch Insertion recording buffer.
+    pub fn with_noise_callback<F>(mut self, cb: F) -> Self
+    where
+        F: Fn(&[f32]) + Send + Sync + 'static,
+    {
+        self.noise_cb = Some(Arc::new(cb));
+        self
+    }
+
+    pub fn with_stream_every_frame(mut self, flag: Arc<AtomicBool>) -> Self {
+        self.stream_every_frame = Some(flag);
+        self
+    }
+
     pub fn with_selected_channel(mut self, channel: Option<u16>) -> Self {
         self.set_selected_channel(channel);
         self
@@ -180,6 +201,8 @@ impl AudioRecorder {
         let level_cb = self.level_cb.clone();
         // Move the optional real-time audio frame callback into the worker thread
         let audio_cb = self.audio_cb.clone();
+        let noise_cb = self.noise_cb.clone();
+        let stream_every_frame = self.stream_every_frame.clone();
         let selected_channel = self.selected_channel;
         let config_cache = Arc::clone(&self.config_cache);
         let stream_error = Arc::clone(&self.stream_error);
@@ -322,6 +345,8 @@ impl AudioRecorder {
                         cmd_rx,
                         level_cb,
                         audio_cb,
+                        noise_cb,
+                        stream_every_frame,
                         stop_flag,
                         stream_running_at,
                     );
@@ -607,6 +632,8 @@ mod tests {
                 cmd_rx,
                 None,
                 None,
+                None,
+                None,
                 Arc::new(AtomicBool::new(false)),
                 Instant::now(),
             );
@@ -669,6 +696,8 @@ fn run_consumer(
     cmd_rx: mpsc::Receiver<Cmd>,
     level_cb: Option<Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>>,
     audio_cb: Option<AudioFrameCallback>,
+    noise_cb: Option<AudioFrameCallback>,
+    stream_every_frame: Option<Arc<AtomicBool>>,
     stop_flag: Arc<AtomicBool>,
     stream_running_at: Instant,
 ) {
@@ -717,6 +746,8 @@ fn run_consumer(
         vad_policy: VadPolicy,
         vad: &Option<VadConfig>,
         audio_cb: &Option<AudioFrameCallback>,
+        noise_cb: &Option<AudioFrameCallback>,
+        stream_every_frame: &Option<Arc<AtomicBool>>,
         out_buf: &mut Vec<f32>,
     ) {
         if !recording {
@@ -738,8 +769,24 @@ fn run_consumer(
         if let Some(cfg) = vad {
             let mut det = cfg.detector.lock().unwrap();
             match det.push_frame(samples).unwrap_or(VadFrame::Speech(samples)) {
-                VadFrame::Speech(buf) => emit(buf),
-                VadFrame::Noise => {}
+                VadFrame::Speech(buf) => {
+                    out_buf.extend_from_slice(buf);
+                    if let Some(cb) = audio_cb {
+                        if stream_every_frame
+                            .as_ref()
+                            .is_some_and(|f| f.load(Ordering::Relaxed))
+                        {
+                            cb(samples);
+                        } else {
+                            cb(buf);
+                        }
+                    }
+                }
+                VadFrame::Noise => {
+                    if let Some(cb) = noise_cb {
+                        cb(samples);
+                    }
+                }
             }
         } else {
             emit(samples);
@@ -808,6 +855,8 @@ fn run_consumer(
                                 vad_policy,
                                 &vad,
                                 &audio_cb,
+                                &noise_cb,
+                                &stream_every_frame,
                                 &mut processed_samples,
                             )
                         });
@@ -827,6 +876,8 @@ fn run_consumer(
                                         vad_policy,
                                         &vad,
                                         &audio_cb,
+                                        &noise_cb,
+                                        &stream_every_frame,
                                         &mut processed_samples,
                                     )
                                 });
@@ -846,6 +897,8 @@ fn run_consumer(
                             vad_policy,
                             &vad,
                             &audio_cb,
+                            &noise_cb,
+                            &stream_every_frame,
                             &mut processed_samples,
                         )
                     });
@@ -902,6 +955,8 @@ fn run_consumer(
                     vad_policy,
                     &vad,
                     &audio_cb,
+                    &noise_cb,
+                    &stream_every_frame,
                     &mut processed_samples,
                 )
             });

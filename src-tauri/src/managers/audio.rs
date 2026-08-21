@@ -313,11 +313,18 @@ fn create_audio_recorder(
             }
         })
         .with_audio_callback({
-            let router = stream_router;
+            let router = Arc::clone(&stream_router);
             move |frame| {
                 router.feed(frame);
             }
-        });
+        })
+        .with_noise_callback({
+            let router = Arc::clone(&stream_router);
+            move |frame| {
+                router.feed_silence(frame);
+            }
+        })
+        .with_stream_every_frame(stream_router.silence_feeding_flag());
 
     Ok(recorder)
 }

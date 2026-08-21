@@ -131,6 +131,52 @@ fn leftover_after_acked(finalized_text: &str, acked_len: usize) -> String {
     }
 }
 
+/// Lookahead the stream worker should request. `Default` is the model's
+/// accuracy-first StreamOptions (no family extension).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LiveLookahead {
+    Default,
+    /// Cache-aware (Nemotron): `att_context_right` in encoder frames.
+    CacheAware { att_context_right: i32 },
+    /// Chunked Unified: milliseconds; left stays the model default (large).
+    ChunkedBuffered { chunk_ms: i32, right_ms: i32 },
+}
+
+/// ~80 ms Lookahead for cache-aware Nemotron (not 0 ms).
+const NEMOTRON_LIVE_ATT_CONTEXT_RIGHT: i32 = 1;
+/// Smallest on-menu Unified chunk and right (80 ms encoder frames).
+/// parakeet-unified-en menu: L∈{70}, C∈{1,2,7,13}, R∈{0,1,2,3,4,7,13}.
+const UNIFIED_LIVE_CHUNK_MS: i32 = 80;
+const UNIFIED_LIVE_RIGHT_MS: i32 = 0;
+
+/// When Live Insertion is active, pick a short Lookahead for the loaded family.
+pub fn lookahead_for_live_insertion(
+    live_insertion_active: bool,
+    model_accepts_cache_aware: bool,
+    model_accepts_chunked: bool,
+) -> LiveLookahead {
+    if !live_insertion_active {
+        return LiveLookahead::Default;
+    }
+    if model_accepts_cache_aware {
+        return LiveLookahead::CacheAware {
+            att_context_right: NEMOTRON_LIVE_ATT_CONTEXT_RIGHT,
+        };
+    }
+    if model_accepts_chunked {
+        return LiveLookahead::ChunkedBuffered {
+            chunk_ms: UNIFIED_LIVE_CHUNK_MS,
+            right_ms: UNIFIED_LIVE_RIGHT_MS,
+        };
+    }
+    LiveLookahead::Default
+}
+
+/// Silence Feeding: noise frames go to the stream only while Live Insertion is active.
+pub fn should_feed_silence_to_stream(live_insertion_active: bool) -> bool {
+    live_insertion_active
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -363,5 +409,52 @@ mod tests {
             let got = collect(c.live_requested, c.model_streams, c.options, c.steps);
             assert_eq!(got, c.expected, "{}", c.name);
         }
+    }
+
+    #[test]
+    fn live_insertion_off_keeps_accuracy_first_lookahead() {
+        assert_eq!(
+            lookahead_for_live_insertion(false, true, false),
+            LiveLookahead::Default
+        );
+        assert_eq!(
+            lookahead_for_live_insertion(false, false, true),
+            LiveLookahead::Default
+        );
+    }
+
+    #[test]
+    fn live_insertion_on_nemotron_uses_eighty_ms_lookahead() {
+        assert_eq!(
+            lookahead_for_live_insertion(true, true, false),
+            LiveLookahead::CacheAware {
+                att_context_right: 1
+            }
+        );
+    }
+
+    #[test]
+    fn live_insertion_on_unified_uses_smallest_on_menu_chunk_and_right() {
+        assert_eq!(
+            lookahead_for_live_insertion(true, false, true),
+            LiveLookahead::ChunkedBuffered {
+                chunk_ms: 80,
+                right_ms: 0
+            }
+        );
+    }
+
+    #[test]
+    fn live_insertion_on_without_family_extension_stays_default() {
+        assert_eq!(
+            lookahead_for_live_insertion(true, false, false),
+            LiveLookahead::Default
+        );
+    }
+
+    #[test]
+    fn silence_feeding_only_when_live_insertion_is_active() {
+        assert!(should_feed_silence_to_stream(true));
+        assert!(!should_feed_silence_to_stream(false));
     }
 }
