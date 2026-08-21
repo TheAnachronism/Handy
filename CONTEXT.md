@@ -52,6 +52,10 @@ _Avoid_: right context, att_context (unless naming the model knob)
 A CLI `--lookahead` value that replaces the Lookahead setting for one Plain Dictation start. It does not persist, does not change the Settings dropdown, and does not apply if Live Insertion is off, the model cannot stream, or the invocation stops a session.
 _Avoid_: latency flag, att_context CLI
 
+**Live Insertion Override**:
+A CLI `--live-insertion` flag that enables Live Insertion for one Plain Dictation start even when the Settings toggle is off. It does not persist, does not change the Settings toggle, and does not apply if the model cannot stream, the invocation stops a session, or the start is Post-Process Dictation.
+_Avoid_: streaming CLI, live typing flag
+
 **Silence Feeding**:
 During Live Insertion, every microphone frame — speech and silence — is given to the streaming model for the whole Dictation Session so Lookahead can finish without the user stopping. Silence still does not auto-stop the session or auto-finalize Tentative Transcript.
 _Avoid_: VAD bypass, always-on stream, endpointing

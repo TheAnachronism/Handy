@@ -297,19 +297,38 @@ pub fn should_feed_silence_to_stream(live_insertion_active: bool) -> bool {
     live_insertion_active
 }
 
-/// One-shot Lookahead Override for the next Plain Dictation **start**.
+/// CLI overrides for one Plain Dictation **start**. Do not persist.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SessionStartOverrides {
+    pub lookahead: Option<LiveInsertionLookahead>,
+    pub live_insertion: bool,
+}
+
+/// Whether Live Insertion should run for this Plain Dictation start.
+/// Settings on or CLI `--live-insertion`; never for Post-Process. Streaming is
+/// required for live typing; callers still start the policy when requested so
+/// a non-streaming model can emit Inactive.
+pub fn live_insertion_requested_for_plain_dictation_start(
+    post_process: bool,
+    settings_live_insertion: bool,
+    cli_live_insertion: bool,
+) -> bool {
+    !post_process && (settings_live_insertion || cli_live_insertion)
+}
+
+/// One-shot CLI overrides for the next Plain Dictation **start**.
 #[derive(Default)]
 pub struct SessionLookaheadOverride {
-    inner: Mutex<Option<LiveInsertionLookahead>>,
+    inner: Mutex<SessionStartOverrides>,
 }
 
 impl SessionLookaheadOverride {
-    pub fn store(&self, value: Option<LiveInsertionLookahead>) {
+    pub fn store(&self, value: SessionStartOverrides) {
         *self.inner.lock().unwrap_or_else(|e| e.into_inner()) = value;
     }
 
-    pub fn take(&self) -> Option<LiveInsertionLookahead> {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner()).take()
+    pub fn take(&self) -> SessionStartOverrides {
+        std::mem::take(&mut *self.inner.lock().unwrap_or_else(|e| e.into_inner()))
     }
 }
 
@@ -698,6 +717,22 @@ mod tests {
                 att_context_right: 3
             }
         );
+    }
+
+    #[test]
+    fn cli_live_insertion_requests_live_when_settings_off() {
+        assert!(live_insertion_requested_for_plain_dictation_start(
+            false, false, true
+        ));
+        assert!(live_insertion_requested_for_plain_dictation_start(
+            false, true, false
+        ));
+        assert!(!live_insertion_requested_for_plain_dictation_start(
+            false, false, false
+        ));
+        assert!(!live_insertion_requested_for_plain_dictation_start(
+            true, true, true
+        ));
     }
 
     #[test]

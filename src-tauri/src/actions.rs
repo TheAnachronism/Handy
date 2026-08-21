@@ -519,11 +519,27 @@ impl ShortcutAction for TranscribeAction {
         } else {
             VadPolicy::Offline
         };
-        let live_insertion_active =
-            !self.post_process && settings.live_insertion && model_supports_streaming;
-        let lookahead_override = app
+        let session_overrides = app
             .try_state::<Arc<SessionLookaheadOverride>>()
-            .and_then(|slot| slot.take());
+            .map(|slot| slot.take())
+            .unwrap_or_default();
+        let live_insertion_requested =
+            crate::live_insertion::live_insertion_requested_for_plain_dictation_start(
+                self.post_process,
+                settings.live_insertion,
+                session_overrides.live_insertion,
+            );
+        let live_insertion_active = live_insertion_requested && model_supports_streaming;
+        let lookahead_override = session_overrides.lookahead;
+        if session_overrides.live_insertion {
+            if live_insertion_active {
+                info!("Live Insertion enabled for this Dictation Session (CLI)");
+            } else if self.post_process {
+                debug!("Live Insertion CLI flag ignored (Post-Process Dictation)");
+            } else {
+                debug!("Live Insertion CLI flag ignored (model cannot stream)");
+            }
+        }
         if let Some(over) = lookahead_override {
             if live_insertion_active {
                 info!(
@@ -546,7 +562,7 @@ impl ShortcutAction for TranscribeAction {
             tm.start_stream(live_insertion_active, settings.live_insertion_lookahead, lookahead_override);
         }
         // Live Insertion is Plain Dictation only. Post-process stays Batch Insertion.
-        if !self.post_process && settings.live_insertion {
+        if live_insertion_requested {
             tm.start_live_insertion(
                 true,
                 model_supports_streaming,

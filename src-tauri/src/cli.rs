@@ -32,6 +32,11 @@ pub struct CliArgs {
     #[arg(long, value_enum, value_name = "PRESET")]
     pub lookahead: Option<LiveInsertionLookahead>,
 
+    /// Enable Live Insertion for one Plain Dictation start. Does not persist.
+    /// Requires --toggle-transcription or --toggle-post-process.
+    #[arg(long)]
+    pub live_insertion: bool,
+
     /// Enable debug mode with verbose logging
     #[arg(long)]
     pub debug: bool,
@@ -81,10 +86,17 @@ impl CliArgs {
         T: Into<OsString> + Clone,
     {
         let args = Self::try_parse_from(itr)?;
-        if args.lookahead.is_some() && !args.toggle_transcription && !args.toggle_post_process {
+        let has_start = args.toggle_transcription || args.toggle_post_process;
+        if args.lookahead.is_some() && !has_start {
             return Err(Self::command().error(
                 ErrorKind::MissingRequiredArgument,
                 "--lookahead requires --toggle-transcription or --toggle-post-process",
+            ));
+        }
+        if args.live_insertion && !has_start {
+            return Err(Self::command().error(
+                ErrorKind::MissingRequiredArgument,
+                "--live-insertion requires --toggle-transcription or --toggle-post-process",
             ));
         }
         Ok(args)
@@ -112,6 +124,13 @@ pub fn lookahead_from_argv<S: AsRef<str>>(
     }
     None
 }
+
+/// Read `--live-insertion` from forwarded single-instance argv (already clap-validated
+/// in the sending process).
+pub fn live_insertion_from_argv<S: AsRef<str>>(args: impl IntoIterator<Item = S>) -> bool {
+    args.into_iter().any(|s| s.as_ref() == "--live-insertion")
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -173,5 +192,65 @@ mod tests {
             lookahead_from_argv(["handy", "--toggle-transcription"]),
             None
         );
+    }
+
+    #[test]
+    fn live_insertion_without_start_flag_is_usage_error() {
+        assert!(parse(&["--live-insertion"]).is_err());
+    }
+
+    #[test]
+    fn toggle_transcription_accepts_live_insertion() {
+        let args = parse(&["--toggle-transcription", "--live-insertion"]).unwrap();
+        assert!(args.live_insertion);
+        assert_eq!(args.lookahead, None);
+    }
+
+    #[test]
+    fn toggle_post_process_accepts_live_insertion_without_error() {
+        let args = parse(&["--toggle-post-process", "--live-insertion"]).unwrap();
+        assert!(args.live_insertion);
+    }
+
+    #[test]
+    fn toggle_without_live_insertion_leaves_flag_off() {
+        let args = parse(&["--toggle-transcription"]).unwrap();
+        assert!(!args.live_insertion);
+    }
+
+    #[test]
+    fn live_insertion_and_lookahead_together() {
+        let args = parse(&[
+            "--toggle-transcription",
+            "--live-insertion",
+            "--lookahead",
+            "balanced",
+        ])
+        .unwrap();
+        assert!(args.live_insertion);
+        assert_eq!(args.lookahead, Some(LiveInsertionLookahead::Balanced));
+    }
+
+    #[test]
+    fn live_insertion_from_forwarded_argv() {
+        assert!(live_insertion_from_argv([
+            "handy",
+            "--toggle-transcription",
+            "--live-insertion",
+        ]));
+        assert!(live_insertion_from_argv([
+            "handy",
+            "--toggle-transcription",
+            "--live-insertion",
+            "--lookahead",
+            "fast",
+        ]));
+        assert!(!live_insertion_from_argv(["handy", "--toggle-transcription"]));
+        assert!(!live_insertion_from_argv([
+            "handy",
+            "--toggle-transcription",
+            "--lookahead",
+            "fast",
+        ]));
     }
 }
