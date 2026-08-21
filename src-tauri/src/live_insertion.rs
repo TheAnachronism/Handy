@@ -142,8 +142,10 @@ pub enum LiveLookahead {
     ChunkedBuffered { chunk_ms: i32, right_ms: i32 },
 }
 
-/// ~80 ms Lookahead for cache-aware Nemotron (not 0 ms).
-const NEMOTRON_LIVE_ATT_CONTEXT_RIGHT: i32 = 1;
+/// Shortest non-zero Lookahead on Nemotron Streaming 3.5 GGUF's training menu
+/// (`13 6 3 0`). ~240 ms (3 × 80 ms encoder frames). Not 1 (not on this menu)
+/// and not 0 (worse WER).
+const NEMOTRON_LIVE_ATT_CONTEXT_RIGHT: i32 = 3;
 /// Smallest on-menu Unified chunk and right (80 ms encoder frames).
 /// parakeet-unified-en menu: L∈{70}, C∈{1,2,7,13}, R∈{0,1,2,3,4,7,13}.
 const UNIFIED_LIVE_CHUNK_MS: i32 = 80;
@@ -424,11 +426,11 @@ mod tests {
     }
 
     #[test]
-    fn live_insertion_on_nemotron_uses_eighty_ms_lookahead() {
+    fn live_insertion_on_nemotron_uses_shortest_nonzero_menu_lookahead() {
         assert_eq!(
             lookahead_for_live_insertion(true, true, false),
             LiveLookahead::CacheAware {
-                att_context_right: 1
+                att_context_right: 3
             }
         );
     }
