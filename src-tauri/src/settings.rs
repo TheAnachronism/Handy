@@ -407,6 +407,10 @@ pub struct AppSettings {
     pub recording_retention_period: RecordingRetentionPeriod,
     #[serde(default)]
     pub paste_method: PasteMethod,
+    /// When true, Plain Dictation Direct-types Committed Deltas during the session
+    /// (Live Insertion). Default off: Batch Insertion at stop.
+    #[serde(default)]
+    pub live_insertion: bool,
     #[serde(default)]
     pub clipboard_handling: ClipboardHandling,
     #[serde(default = "default_auto_submit")]
@@ -904,6 +908,7 @@ pub fn get_default_settings() -> AppSettings {
         history_limit: default_history_limit(),
         recording_retention_period: default_recording_retention_period(),
         paste_method: PasteMethod::default(),
+        live_insertion: false,
         clipboard_handling: ClipboardHandling::default(),
         auto_submit: default_auto_submit(),
         auto_submit_key: AutoSubmitKey::default(),
@@ -1187,6 +1192,7 @@ mod tests {
             .expect("all AppSettings fields need serde defaults");
         assert!(settings.push_to_talk);
         assert!(!settings.audio_feedback);
+        assert!(!settings.live_insertion);
         assert!(settings.filler_word_removal_enabled);
         // Bindings default to empty; the load path merges the real defaults in.
         assert!(settings.bindings.is_empty());
@@ -1320,6 +1326,22 @@ mod tests {
             TranscribeAcceleratorSetting::Auto
         );
         assert_eq!(settings.transcribe_gpu_device, None);
+    }
+
+    #[test]
+    fn live_insertion_defaults_off_and_roundtrips() {
+        let settings: AppSettings = serde_json::from_value(serde_json::json!({}))
+            .expect("live_insertion needs a serde default");
+        assert!(!settings.live_insertion);
+
+        let value = serde_json::to_value(get_default_settings()).unwrap();
+        assert_eq!(value["live_insertion"], serde_json::json!(false));
+
+        let mut enabled = get_default_settings();
+        enabled.live_insertion = true;
+        let roundtrip: AppSettings =
+            serde_json::from_value(serde_json::to_value(&enabled).unwrap()).unwrap();
+        assert!(roundtrip.live_insertion);
     }
 
     #[test]

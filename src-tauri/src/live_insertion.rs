@@ -54,7 +54,7 @@ impl LiveInsertionPolicy {
         (policy, commands)
     }
 
-    fn live_active(&self) -> bool {
+    pub fn live_active(&self) -> bool {
         self.live_requested && self.model_streams
     }
 

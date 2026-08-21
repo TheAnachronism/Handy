@@ -719,6 +719,20 @@ pub(crate) fn type_text_direct(
     with_enigo(app_handle, |enigo| input::paste_text_direct(enigo, text))
 }
 
+/// Direct-type Live Insertion text. Ignores Paste Method, paste delays, and
+/// Batch trailing-space wrapping.
+pub(crate) fn type_live_insertion_text(app_handle: &AppHandle, text: &str) -> Result<(), String> {
+    if text.is_empty() {
+        return Ok(());
+    }
+    type_text_direct(
+        text,
+        app_handle,
+        #[cfg(target_os = "linux")]
+        get_settings(app_handle).typing_tool,
+    )
+}
+
 /// Batch Insertion wrapping for [`paste`]: optional trailing space.
 /// Direct typing ([`type_text_direct`]) does not apply this.
 fn wrap_batch_paste_text(text: String, append_trailing_space: bool) -> String {

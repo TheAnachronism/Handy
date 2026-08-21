@@ -868,6 +868,15 @@ pub fn change_reliable_paste_setting(app: AppHandle, enabled: bool) -> Result<()
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_live_insertion_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.live_insertion = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_paste_method_setting(app: AppHandle, method: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     let parsed = match method.as_str() {

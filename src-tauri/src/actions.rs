@@ -1,6 +1,8 @@
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::apple_intelligence;
 use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, SoundType};
+use crate::clipboard::type_live_insertion_text;
+use crate::live_insertion::LiveInsertionCommand;
 use crate::audio_toolkit::{is_microphone_access_denied, is_no_input_device_error, VadPolicy};
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::history::HistoryManager;
@@ -516,6 +518,10 @@ impl ShortcutAction for TranscribeAction {
         if model_supports_streaming {
             tm.start_stream();
         }
+        // Live Insertion is Plain Dictation only. Post-process stays Batch Insertion.
+        if !self.post_process && settings.live_insertion {
+            tm.start_live_insertion(true, model_supports_streaming);
+        }
         let plan_elapsed = plan_started.elapsed();
 
         // Sizing the overlay follows the same advertised capability. A model that
@@ -754,6 +760,7 @@ impl ShortcutAction for TranscribeAction {
 
                     if rm.was_cancelled_since(cancel_generation) {
                         debug!("Transcription operation cancelled before output handling");
+                        tm.cancel_live_insertion();
                         utils::hide_recording_overlay(&ah);
                         change_tray_icon(&ah, TrayIconState::Idle);
                         return;
@@ -781,6 +788,7 @@ impl ShortcutAction for TranscribeAction {
                             .await
                             else {
                                 debug!("Transcription operation cancelled during output handling");
+                                tm.cancel_live_insertion();
                                 utils::hide_recording_overlay(&ah);
                                 change_tray_icon(&ah, TrayIconState::Idle);
                                 return;
@@ -788,6 +796,7 @@ impl ShortcutAction for TranscribeAction {
 
                             if rm.was_cancelled_since(cancel_generation) {
                                 debug!("Transcription operation cancelled before paste");
+                                tm.cancel_live_insertion();
                                 utils::hide_recording_overlay(&ah);
                                 change_tray_icon(&ah, TrayIconState::Idle);
                                 return;
@@ -806,9 +815,73 @@ impl ShortcutAction for TranscribeAction {
                                 }
                             }
 
-                            if processed.final_text.is_empty() {
+                            let live_policy = tm.take_live_insertion();
+                            let live_active = live_policy
+                                .as_ref()
+                                .is_some_and(|policy| policy.live_active());
+
+                            if processed.final_text.is_empty() && !live_active {
                                 utils::hide_recording_overlay(&ah);
                                 change_tray_icon(&ah, TrayIconState::Idle);
+                            } else if live_active {
+                                let mut policy = live_policy.expect("live_active implies policy");
+                                let leftover_commands = policy.stop(&processed.final_text);
+                                let ah_clone = ah.clone();
+                                let rm_for_type = Arc::clone(&rm);
+                                ah.run_on_main_thread(move || {
+                                    if rm_for_type.was_cancelled_since(cancel_generation) {
+                                        debug!(
+                                            "Transcription operation cancelled before leftover type"
+                                        );
+                                        utils::hide_recording_overlay(&ah_clone);
+                                        change_tray_icon(&ah_clone, TrayIconState::Idle);
+                                        return;
+                                    }
+
+                                    for command in leftover_commands {
+                                        match command {
+                                            LiveInsertionCommand::TypeLeftover {
+                                                text,
+                                                trailing_space,
+                                            } => {
+                                                let mut leftover = text;
+                                                if trailing_space {
+                                                    leftover.push(' ');
+                                                }
+                                                if let Err(e) =
+                                                    type_live_insertion_text(&ah_clone, &leftover)
+                                                {
+                                                    error!(
+                                                        "Failed to Direct-type leftover: {}",
+                                                        e
+                                                    );
+                                                }
+                                            }
+                                            LiveInsertionCommand::Type(text) => {
+                                                if let Err(e) =
+                                                    type_live_insertion_text(&ah_clone, &text)
+                                                {
+                                                    error!(
+                                                        "Failed to Direct-type leftover delta: {}",
+                                                        e
+                                                    );
+                                                }
+                                            }
+                                            other => {
+                                                debug!(
+                                                    "Ignoring Live Insertion stop command: {other:?}"
+                                                );
+                                            }
+                                        }
+                                    }
+                                    utils::hide_recording_overlay(&ah_clone);
+                                    change_tray_icon(&ah_clone, TrayIconState::Idle);
+                                })
+                                .unwrap_or_else(|e| {
+                                    error!("Failed to run leftover type on main thread: {:?}", e);
+                                    utils::hide_recording_overlay(&ah);
+                                    change_tray_icon(&ah, TrayIconState::Idle);
+                                });
                             } else {
                                 let ah_clone = ah.clone();
                                 let paste_time = Instant::now();
@@ -847,12 +920,14 @@ impl ShortcutAction for TranscribeAction {
                                 debug!(
                                     "Transcription operation cancelled after transcription error"
                                 );
+                                tm.cancel_live_insertion();
                                 utils::hide_recording_overlay(&ah);
                                 change_tray_icon(&ah, TrayIconState::Idle);
                                 return;
                             }
 
                             error!("Transcription failed: {}", err);
+                            tm.cancel_live_insertion();
                             // Surface the failure to the UI (toast). The full
                             // message is also in handy.log via the line above.
                             let _ = ah.emit("transcription-error", err.to_string());

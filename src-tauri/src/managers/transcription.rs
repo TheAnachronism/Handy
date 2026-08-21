@@ -1,3 +1,5 @@
+use crate::clipboard::type_live_insertion_text;
+use crate::live_insertion::{LiveInsertionCommand, LiveInsertionOptions, LiveInsertionPolicy};
 use crate::audio_toolkit::{
     apply_custom_words, detect_output_language, normalize_transcription_output,
     remove_filler_words, OutputLanguageEvidence,
@@ -277,6 +279,8 @@ pub struct TranscriptionManager {
     /// `is_model_loaded()` consults this so the model still reports "loaded"
     /// while the worker holds it.
     active_engine_lease: Arc<AtomicU64>,
+    /// Live Insertion policy for the current Plain Dictation session, if started.
+    live_insertion: Arc<Mutex<Option<LiveInsertionPolicy>>>,
 }
 
 impl TranscriptionManager {
@@ -297,6 +301,7 @@ impl TranscriptionManager {
             next_stream_worker_id: Arc::new(AtomicU64::new(1)),
             active_stream_worker: Arc::new(AtomicU64::new(0)),
             active_engine_lease: Arc::new(AtomicU64::new(0)),
+            live_insertion: Arc::new(Mutex::new(None)),
         };
 
         // Start the idle watcher
@@ -1144,6 +1149,36 @@ impl TranscriptionManager {
             let _ = tx.send(StreamCmd::Cancel);
         }
         self.stream_active.store(false, Ordering::Release);
+        self.cancel_live_insertion();
+    }
+
+    /// Start Live Insertion for a Plain Dictation session.
+    /// Post-process bindings must not call this.
+    pub fn start_live_insertion(&self, live_requested: bool, model_streams: bool) {
+        let (policy, commands) = LiveInsertionPolicy::start(
+            live_requested,
+            model_streams,
+            LiveInsertionOptions::default(),
+        );
+        if commands
+            .iter()
+            .any(|c| matches!(c, LiveInsertionCommand::Inactive))
+        {
+            info!(
+                "Live Insertion requested but the model cannot stream; using Batch Insertion at stop"
+            );
+        }
+        *self.live_insertion.lock().unwrap() = Some(policy);
+    }
+
+    pub fn take_live_insertion(&self) -> Option<LiveInsertionPolicy> {
+        self.live_insertion.lock().unwrap().take()
+    }
+
+    pub fn cancel_live_insertion(&self) {
+        if let Some(mut policy) = self.live_insertion.lock().unwrap().take() {
+            let _ = policy.cancel();
+        }
     }
 
     /// Emit a working-phase event to the streaming overlay (spinner + label).
@@ -1161,6 +1196,29 @@ impl TranscriptionManager {
             tentative: tentative.to_string(),
         }
         .emit(&self.app_handle);
+
+        let commands = {
+            let mut guard = self.live_insertion.lock().unwrap();
+            match guard.as_mut() {
+                Some(policy) => policy.on_stream_text(committed, tentative),
+                None => Vec::new(),
+            }
+        };
+        for command in commands {
+            match command {
+                LiveInsertionCommand::Type(text) => {
+                    if let Err(err) = type_live_text_on_main_thread(&self.app_handle, &text) {
+                        warn!("Live Insertion Direct type failed: {err}");
+                        if let Some(policy) = self.live_insertion.lock().unwrap().as_mut() {
+                            let _ = policy.direct_failed();
+                        }
+                    }
+                }
+                other => {
+                    debug!("Ignoring Live Insertion command during stream: {other:?}");
+                }
+            }
+        }
     }
 
     pub fn transcribe(&self, audio: Vec<f32>) -> Result<String> {
@@ -2490,4 +2548,18 @@ impl Drop for TranscriptionManager {
             }
         }
     }
+}
+
+
+fn type_live_text_on_main_thread(app: &AppHandle, text: &str) -> Result<(), String> {
+    let (tx, rx) = mpsc::channel();
+    let text = text.to_string();
+    let app_clone = app.clone();
+    app.run_on_main_thread(move || {
+        let result = type_live_insertion_text(&app_clone, &text);
+        let _ = tx.send(result);
+    })
+    .map_err(|e| format!("Failed to run live type on main thread: {e:?}"))?;
+    rx.recv()
+        .map_err(|e| format!("Live type main-thread reply dropped: {e}"))?
 }
