@@ -45,8 +45,8 @@ Aborting a Dictation Session without treating it as a normal stop. Capture ends,
 _Avoid_: undo dictation, discard session
 
 **Lookahead**:
-Extra audio a streaming model waits for before promoting Tentative Transcript to Committed Transcript. Live Insertion uses a shorter Lookahead than Batch Insertion so commits happen sooner; accuracy can drop. The value must be on the loaded model's training menu (Nemotron Streaming 3.5 GGUF: 13, 6, 3, or 0).
-_Avoid_: right context, att_context, latency setting (unless naming a user control)
+Extra audio a streaming model waits for before promoting Tentative Transcript to Committed Transcript. Live Insertion uses a shorter Lookahead than Batch Insertion so commits happen sooner; accuracy and punctuation can drop. A setting next to Live Insertion picks Fastest / Fast / Balanced / Accurate on the loaded model's training menu (Nemotron Streaming 3.5 GGUF: 0, 3, 6, or 13).
+_Avoid_: right context, att_context (unless naming the model knob)
 
 **Silence Feeding**:
 During Live Insertion, every microphone frame — speech and silence — is given to the streaming model for the whole Dictation Session so Lookahead can finish without the user stopping. Silence still does not auto-stop the session or auto-finalize Tentative Transcript.

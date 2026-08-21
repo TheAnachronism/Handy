@@ -138,6 +138,8 @@ const settingUpdaters: {
   paste_method: (value) => commands.changePasteMethodSetting(value as string),
   live_insertion: (value) =>
     commands.changeLiveInsertionSetting(value as boolean),
+  live_insertion_lookahead: (value) =>
+    commands.changeLiveInsertionLookaheadSetting(value as string),
   typing_tool: (value) => commands.changeTypingToolSetting(value as string),
   external_script_path: (value) =>
     commands.changeExternalScriptPathSetting(value as string | null),

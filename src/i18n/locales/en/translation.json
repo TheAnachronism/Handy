@@ -200,7 +200,17 @@
       },
       "liveInsertion": {
         "label": "Live Insertion",
-        "description": "Insert committed transcript into the focused app while you speak. Overlay style is separate. If the selected model cannot stream, dictation uses Batch Insertion instead and you will see a one-time notice."
+        "description": "Insert committed transcript into the focused app while you speak. Overlay style is separate. If the selected model cannot stream, dictation uses Batch Insertion instead and you will see a one-time notice.",
+        "lookahead": {
+          "label": "Lookahead",
+          "description": "How much extra audio the model waits for before typing committed text. Shorter is snappier but punctuation and accuracy can drop; longer holds words (and commas/periods) as overlay-only until they stabilize.",
+          "options": {
+            "fastest": "Fastest (~0 ms)",
+            "fast": "Fast (~240 ms)",
+            "balanced": "Balanced (~480 ms)",
+            "accurate": "Accurate (~1 s)"
+          }
+        }
       }
     },
     "models": {

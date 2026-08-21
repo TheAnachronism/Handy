@@ -142,34 +142,61 @@ pub enum LiveLookahead {
     ChunkedBuffered { chunk_ms: i32, right_ms: i32 },
 }
 
-/// Shortest non-zero Lookahead on Nemotron Streaming 3.5 GGUF's training menu
-/// (`13 6 3 0`). ~240 ms (3 × 80 ms encoder frames). Not 1 (not on this menu)
-/// and not 0 (worse WER).
-const NEMOTRON_LIVE_ATT_CONTEXT_RIGHT: i32 = 3;
-/// Smallest on-menu Unified chunk and right (80 ms encoder frames).
-/// parakeet-unified-en menu: L∈{70}, C∈{1,2,7,13}, R∈{0,1,2,3,4,7,13}.
-const UNIFIED_LIVE_CHUNK_MS: i32 = 80;
-const UNIFIED_LIVE_RIGHT_MS: i32 = 0;
+/// User-facing Lookahead preset. Maps onto each family's training menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum LiveInsertionLookahead {
+    /// ~0 ms (Nemotron right=0). Fastest typing; weakest punctuation/accuracy.
+    Fastest,
+    /// ~240 ms (Nemotron right=3). Default: shortest non-zero on the GGUF menu.
+    #[default]
+    Fast,
+    /// ~480 ms (Nemotron right=6). Later commits; usually better punctuation.
+    Balanced,
+    /// ~1040 ms (Nemotron right=13). Closest to batch quality.
+    Accurate,
+}
 
-/// When Live Insertion is active, pick a short Lookahead for the loaded family.
+impl LiveInsertionLookahead {
+    /// Nemotron Streaming 3.5 GGUF menu: 13 6 3 0.
+    pub fn nemotron_att_context_right(self) -> i32 {
+        match self {
+            Self::Fastest => 0,
+            Self::Fast => 3,
+            Self::Balanced => 6,
+            Self::Accurate => 13,
+        }
+    }
+
+    /// Unified EN: C in {1,2,7,13}, R in {0,1,2,3,4,7,13} (80 ms frames).
+    pub fn unified_chunk_and_right_ms(self) -> (i32, i32) {
+        match self {
+            Self::Fastest => (80, 0),
+            Self::Fast => (80, 80),
+            Self::Balanced => (160, 160),
+            Self::Accurate => (1040, 1040),
+        }
+    }
+}
+
+/// When Live Insertion is active, pick Lookahead for the loaded family and preset.
 pub fn lookahead_for_live_insertion(
     live_insertion_active: bool,
     model_accepts_cache_aware: bool,
     model_accepts_chunked: bool,
+    preset: LiveInsertionLookahead,
 ) -> LiveLookahead {
     if !live_insertion_active {
         return LiveLookahead::Default;
     }
     if model_accepts_cache_aware {
         return LiveLookahead::CacheAware {
-            att_context_right: NEMOTRON_LIVE_ATT_CONTEXT_RIGHT,
+            att_context_right: preset.nemotron_att_context_right(),
         };
     }
     if model_accepts_chunked {
-        return LiveLookahead::ChunkedBuffered {
-            chunk_ms: UNIFIED_LIVE_CHUNK_MS,
-            right_ms: UNIFIED_LIVE_RIGHT_MS,
-        };
+        let (chunk_ms, right_ms) = preset.unified_chunk_and_right_ms();
+        return LiveLookahead::ChunkedBuffered { chunk_ms, right_ms };
     }
     LiveLookahead::Default
 }
@@ -416,32 +443,71 @@ mod tests {
     #[test]
     fn live_insertion_off_keeps_accuracy_first_lookahead() {
         assert_eq!(
-            lookahead_for_live_insertion(false, true, false),
+            lookahead_for_live_insertion(false, true, false, LiveInsertionLookahead::Balanced),
             LiveLookahead::Default
         );
         assert_eq!(
-            lookahead_for_live_insertion(false, false, true),
+            lookahead_for_live_insertion(false, false, true, LiveInsertionLookahead::Accurate),
             LiveLookahead::Default
         );
     }
 
     #[test]
-    fn live_insertion_on_nemotron_uses_shortest_nonzero_menu_lookahead() {
+    fn live_insertion_on_nemotron_maps_menu_presets() {
         assert_eq!(
-            lookahead_for_live_insertion(true, true, false),
+            lookahead_for_live_insertion(true, true, false, LiveInsertionLookahead::Fast),
             LiveLookahead::CacheAware {
                 att_context_right: 3
+            }
+        );
+        assert_eq!(
+            lookahead_for_live_insertion(true, true, false, LiveInsertionLookahead::Balanced),
+            LiveLookahead::CacheAware {
+                att_context_right: 6
+            }
+        );
+        assert_eq!(
+            lookahead_for_live_insertion(true, true, false, LiveInsertionLookahead::Fastest),
+            LiveLookahead::CacheAware {
+                att_context_right: 0
+            }
+        );
+        assert_eq!(
+            lookahead_for_live_insertion(true, true, false, LiveInsertionLookahead::Accurate),
+            LiveLookahead::CacheAware {
+                att_context_right: 13
             }
         );
     }
 
     #[test]
-    fn live_insertion_on_unified_uses_smallest_on_menu_chunk_and_right() {
+    fn live_insertion_on_unified_maps_on_menu_chunk_and_right() {
         assert_eq!(
-            lookahead_for_live_insertion(true, false, true),
+            lookahead_for_live_insertion(true, false, true, LiveInsertionLookahead::Fastest),
             LiveLookahead::ChunkedBuffered {
                 chunk_ms: 80,
                 right_ms: 0
+            }
+        );
+        assert_eq!(
+            lookahead_for_live_insertion(true, false, true, LiveInsertionLookahead::Fast),
+            LiveLookahead::ChunkedBuffered {
+                chunk_ms: 80,
+                right_ms: 80
+            }
+        );
+        assert_eq!(
+            lookahead_for_live_insertion(true, false, true, LiveInsertionLookahead::Balanced),
+            LiveLookahead::ChunkedBuffered {
+                chunk_ms: 160,
+                right_ms: 160
+            }
+        );
+        assert_eq!(
+            lookahead_for_live_insertion(true, false, true, LiveInsertionLookahead::Accurate),
+            LiveLookahead::ChunkedBuffered {
+                chunk_ms: 1040,
+                right_ms: 1040
             }
         );
     }
@@ -449,7 +515,7 @@ mod tests {
     #[test]
     fn live_insertion_on_without_family_extension_stays_default() {
         assert_eq!(
-            lookahead_for_live_insertion(true, false, false),
+            lookahead_for_live_insertion(true, false, false, LiveInsertionLookahead::Fast),
             LiveLookahead::Default
         );
     }

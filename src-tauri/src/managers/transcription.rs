@@ -1,7 +1,7 @@
 use crate::clipboard::type_live_insertion_text;
 use crate::live_insertion::{
     lookahead_for_live_insertion, should_feed_silence_to_stream, LiveInsertionCommand,
-    LiveInsertionOptions, LiveInsertionPolicy, LiveLookahead,
+    LiveInsertionLookahead, LiveInsertionOptions, LiveInsertionPolicy, LiveLookahead,
 };
 use crate::audio_toolkit::{
     apply_custom_words, detect_output_language, normalize_transcription_output,
@@ -208,11 +208,16 @@ impl StreamRouter {
 }
 
 
-fn stream_options_for_live_lookahead(live_insertion_active: bool, model: &Model) -> StreamOptions {
+fn stream_options_for_live_lookahead(
+    live_insertion_active: bool,
+    model: &Model,
+    preset: LiveInsertionLookahead,
+) -> StreamOptions {
     let lookahead = lookahead_for_live_insertion(
         live_insertion_active,
         model.accepts_ext(ExtSlot::Stream, TRANSCRIBE_EXT_KIND_PARAKEET_STREAM),
         model.accepts_ext(ExtSlot::Stream, TRANSCRIBE_EXT_KIND_PARAKEET_BUFFERED_STREAM),
+        preset,
     );
     match lookahead {
         LiveLookahead::Default => StreamOptions::default(),
@@ -864,7 +869,11 @@ impl TranscriptionManager {
     /// model can't stream, the worker idles until finalize/cancel and reports
     /// `None` so the caller falls back to batch transcription. Frames sent
     /// before the stream begins queue on the channel and are not lost.
-    pub fn start_stream(&self, live_insertion_active: bool) {
+    pub fn start_stream(
+        &self,
+        live_insertion_active: bool,
+        live_insertion_lookahead: LiveInsertionLookahead,
+    ) {
         if self.router.is_open() || self.active_stream_worker.load(Ordering::Acquire) != 0 {
             warn!("start_stream called while a stream worker is already active");
             return;
@@ -883,7 +892,14 @@ impl TranscriptionManager {
         self.stream_active.store(false, Ordering::Release);
 
         let manager = self.clone();
-        thread::spawn(move || manager.run_stream_worker(rx, worker_id, live_insertion_active));
+        thread::spawn(move || {
+            manager.run_stream_worker(
+                rx,
+                worker_id,
+                live_insertion_active,
+                live_insertion_lookahead,
+            )
+        });
     }
 
     fn run_stream_worker(
@@ -891,6 +907,7 @@ impl TranscriptionManager {
         rx: mpsc::Receiver<StreamCmd>,
         worker_id: u64,
         live_insertion_active: bool,
+        live_insertion_lookahead: LiveInsertionLookahead,
     ) {
         let _worker = StreamWorkerGuard {
             worker_id,
@@ -1028,6 +1045,7 @@ impl TranscriptionManager {
             let stream_opts = stream_options_for_live_lookahead(
                 live_insertion_active,
                 &session.model(),
+                live_insertion_lookahead,
             );
             let mut stream = match session.stream(&run_options, &stream_opts) {
                 Ok(s) => s,

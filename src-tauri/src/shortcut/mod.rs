@@ -20,6 +20,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
+use crate::live_insertion::LiveInsertionLookahead;
 use crate::settings::{
     self, get_settings, AutoSubmitKey, ClipboardHandling, KeyboardImplementation, LLMPrompt,
     OverlayPosition, OverlayStyle, PasteMethod, ShortcutBinding, SoundTheme, Theme, TypingTool,
@@ -871,6 +872,30 @@ pub fn change_reliable_paste_setting(app: AppHandle, enabled: bool) -> Result<()
 pub fn change_live_insertion_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.live_insertion = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_live_insertion_lookahead_setting(
+    app: AppHandle,
+    lookahead: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.live_insertion_lookahead = match lookahead.as_str() {
+        "fastest" => LiveInsertionLookahead::Fastest,
+        "fast" => LiveInsertionLookahead::Fast,
+        "balanced" => LiveInsertionLookahead::Balanced,
+        "accurate" => LiveInsertionLookahead::Accurate,
+        other => {
+            warn!(
+                "Invalid live insertion lookahead '{}', defaulting to fast",
+                other
+            );
+            LiveInsertionLookahead::Fast
+        }
+    };
     settings::write_settings(&app, settings);
     Ok(())
 }

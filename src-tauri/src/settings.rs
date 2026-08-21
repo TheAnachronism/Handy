@@ -411,6 +411,9 @@ pub struct AppSettings {
     /// (Live Insertion). Default off: Batch Insertion at stop.
     #[serde(default)]
     pub live_insertion: bool,
+    /// Lookahead preset while Live Insertion is on. Ignored when it is off.
+    #[serde(default)]
+    pub live_insertion_lookahead: crate::live_insertion::LiveInsertionLookahead,
     #[serde(default)]
     pub clipboard_handling: ClipboardHandling,
     #[serde(default = "default_auto_submit")]
@@ -909,6 +912,7 @@ pub fn get_default_settings() -> AppSettings {
         recording_retention_period: default_recording_retention_period(),
         paste_method: PasteMethod::default(),
         live_insertion: false,
+        live_insertion_lookahead: crate::live_insertion::LiveInsertionLookahead::default(),
         clipboard_handling: ClipboardHandling::default(),
         auto_submit: default_auto_submit(),
         auto_submit_key: AutoSubmitKey::default(),
@@ -1193,6 +1197,10 @@ mod tests {
         assert!(settings.push_to_talk);
         assert!(!settings.audio_feedback);
         assert!(!settings.live_insertion);
+        assert_eq!(
+            settings.live_insertion_lookahead,
+            crate::live_insertion::LiveInsertionLookahead::Fast
+        );
         assert!(settings.filler_word_removal_enabled);
         // Bindings default to empty; the load path merges the real defaults in.
         assert!(settings.bindings.is_empty());
@@ -1336,12 +1344,19 @@ mod tests {
 
         let value = serde_json::to_value(get_default_settings()).unwrap();
         assert_eq!(value["live_insertion"], serde_json::json!(false));
+        assert_eq!(value["live_insertion_lookahead"], serde_json::json!("fast"));
 
         let mut enabled = get_default_settings();
         enabled.live_insertion = true;
+        enabled.live_insertion_lookahead =
+            crate::live_insertion::LiveInsertionLookahead::Balanced;
         let roundtrip: AppSettings =
             serde_json::from_value(serde_json::to_value(&enabled).unwrap()).unwrap();
         assert!(roundtrip.live_insertion);
+        assert_eq!(
+            roundtrip.live_insertion_lookahead,
+            crate::live_insertion::LiveInsertionLookahead::Balanced
+        );
     }
 
     #[test]
