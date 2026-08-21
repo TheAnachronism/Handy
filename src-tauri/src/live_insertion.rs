@@ -89,7 +89,7 @@ impl LiveInsertionPolicy {
 
         let mut commands = Vec::new();
         let leftover = leftover_after_acked(finalized_text, self.acked_len);
-        if !leftover.is_empty() {
+        if !leftover.is_empty() || self.options.trailing_space {
             commands.push(LiveInsertionCommand::TypeLeftover {
                 text: leftover,
                 trailing_space: self.options.trailing_space,
@@ -264,6 +264,25 @@ mod tests {
                     Step::Stop("hello"),
                 ],
                 expected: vec![type_cmd("hello")],
+            },
+            Case {
+                name: "stop after all Committed Transcript still types trailing space when that setting is on",
+                live_requested: true,
+                model_streams: true,
+                options: extras,
+                steps: &[
+                    Step::Stream {
+                        committed: "hello",
+                        tentative: "",
+                    },
+                    Step::Stop("hello"),
+                ],
+                expected: vec![
+                    type_cmd("hello"),
+                    leftover("", true),
+                    LiveInsertionCommand::AutoSubmit,
+                    copy_cmd("hello"),
+                ],
             },
             Case {
                 name: "Cancel of a Dictation Session emits no leftover type command",

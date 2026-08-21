@@ -1209,21 +1209,8 @@ impl TranscriptionManager {
         for command in commands {
             match command {
                 LiveInsertionCommand::Type(text) => {
-                    if let Err(err) = type_live_text_on_main_thread(&self.app_handle, &text) {
-                        warn!("Live Insertion Direct type failed: {err}");
-                        let failed_commands = {
-                            let mut guard = self.live_insertion.lock().unwrap();
-                            match guard.as_mut() {
-                                Some(policy) => policy.direct_failed(),
-                                None => Vec::new(),
-                            }
-                        };
-                        for failed in failed_commands {
-                            if matches!(failed, LiveInsertionCommand::ErrorContinue) {
-                                let _ = self.app_handle.emit("paste-error", ());
-                            }
-                        }
-                    }
+                    // Fire-and-forget so StreamTextEvent keep flowing; cursor already advanced.
+                    queue_live_type_on_main_thread(&self.app_handle, text);
                 }
                 other => {
                     debug!("Ignoring Live Insertion command during stream: {other:?}");
@@ -2562,15 +2549,15 @@ impl Drop for TranscriptionManager {
 }
 
 
-fn type_live_text_on_main_thread(app: &AppHandle, text: &str) -> Result<(), String> {
-    let (tx, rx) = mpsc::channel();
-    let text = text.to_string();
+fn queue_live_type_on_main_thread(app: &AppHandle, text: String) {
     let app_clone = app.clone();
-    app.run_on_main_thread(move || {
-        let result = type_live_insertion_text(&app_clone, &text);
-        let _ = tx.send(result);
-    })
-    .map_err(|e| format!("Failed to run live type on main thread: {e:?}"))?;
-    rx.recv()
-        .map_err(|e| format!("Live type main-thread reply dropped: {e}"))?
+    if let Err(e) = app.run_on_main_thread(move || {
+        if let Err(err) = type_live_insertion_text(&app_clone, &text) {
+            warn!("Live Insertion Direct type failed: {err}");
+            let _ = app_clone.emit("paste-error", ());
+        }
+    }) {
+        warn!("Failed to queue live type on main thread: {e:?}");
+        let _ = app.emit("paste-error", ());
+    }
 }
