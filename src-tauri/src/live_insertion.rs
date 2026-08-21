@@ -2,6 +2,8 @@
 //!
 //! Pure decision logic. No microphone, STT, overlay, or OS typing.
 
+use std::sync::Mutex;
+
 /// Session options that affect stop leftover only, not mid-session Committed Deltas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct LiveInsertionOptions {
@@ -202,8 +204,20 @@ pub enum LiveLookahead {
 }
 
 /// User-facing Lookahead preset. Maps onto each family's training menu.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize, specta::Type)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+    specta::Type,
+    clap::ValueEnum,
+)]
 #[serde(rename_all = "snake_case")]
+#[value(rename_all = "snake_case")]
 pub enum LiveInsertionLookahead {
     /// ~0 ms (Nemotron right=0). Fastest typing; weakest punctuation/accuracy.
     Fastest,
@@ -260,9 +274,43 @@ pub fn lookahead_for_live_insertion(
     LiveLookahead::Default
 }
 
+/// Lookahead for one Plain Dictation start: CLI override wins when Live Insertion
+/// is on; otherwise Settings. Live Insertion off or no family extension → Default.
+pub fn lookahead_for_plain_dictation_start(
+    live_insertion_active: bool,
+    model_accepts_cache_aware: bool,
+    model_accepts_chunked: bool,
+    settings_preset: LiveInsertionLookahead,
+    override_preset: Option<LiveInsertionLookahead>,
+) -> LiveLookahead {
+    let preset = override_preset.unwrap_or(settings_preset);
+    lookahead_for_live_insertion(
+        live_insertion_active,
+        model_accepts_cache_aware,
+        model_accepts_chunked,
+        preset,
+    )
+}
+
 /// Silence Feeding: noise frames go to the stream only while Live Insertion is active.
 pub fn should_feed_silence_to_stream(live_insertion_active: bool) -> bool {
     live_insertion_active
+}
+
+/// One-shot Lookahead Override for the next Plain Dictation **start**.
+#[derive(Default)]
+pub struct SessionLookaheadOverride {
+    inner: Mutex<Option<LiveInsertionLookahead>>,
+}
+
+impl SessionLookaheadOverride {
+    pub fn store(&self, value: Option<LiveInsertionLookahead>) {
+        *self.inner.lock().unwrap_or_else(|e| e.into_inner()) = value;
+    }
+
+    pub fn take(&self) -> Option<LiveInsertionLookahead> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).take()
+    }
 }
 
 #[cfg(test)]
@@ -604,5 +652,65 @@ mod tests {
     fn silence_feeding_only_when_live_insertion_is_active() {
         assert!(should_feed_silence_to_stream(true));
         assert!(!should_feed_silence_to_stream(false));
+    }
+
+    #[test]
+    fn lookahead_override_is_ignored_when_live_insertion_is_off() {
+        assert_eq!(
+            lookahead_for_plain_dictation_start(
+                false,
+                true,
+                false,
+                LiveInsertionLookahead::Fast,
+                Some(LiveInsertionLookahead::Balanced),
+            ),
+            LiveLookahead::Default
+        );
+    }
+
+    #[test]
+    fn lookahead_override_wins_on_nemotron_when_live_insertion_is_on() {
+        assert_eq!(
+            lookahead_for_plain_dictation_start(
+                true,
+                true,
+                false,
+                LiveInsertionLookahead::Fast,
+                Some(LiveInsertionLookahead::Balanced),
+            ),
+            LiveLookahead::CacheAware {
+                att_context_right: 6
+            }
+        );
+    }
+
+    #[test]
+    fn settings_lookahead_used_when_override_absent() {
+        assert_eq!(
+            lookahead_for_plain_dictation_start(
+                true,
+                true,
+                false,
+                LiveInsertionLookahead::Fast,
+                None,
+            ),
+            LiveLookahead::CacheAware {
+                att_context_right: 3
+            }
+        );
+    }
+
+    #[test]
+    fn lookahead_override_without_family_extension_stays_default() {
+        assert_eq!(
+            lookahead_for_plain_dictation_start(
+                true,
+                false,
+                false,
+                LiveInsertionLookahead::Fast,
+                Some(LiveInsertionLookahead::Accurate),
+            ),
+            LiveLookahead::Default
+        );
     }
 }

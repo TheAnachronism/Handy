@@ -4,7 +4,7 @@ use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, S
 use crate::clipboard::{
     auto_submit_after_insert, copy_transcript_to_clipboard, type_live_insertion_text,
 };
-use crate::live_insertion::{LiveInsertionCommand, LiveInsertionOptions};
+use crate::live_insertion::{LiveInsertionCommand, LiveInsertionOptions, SessionLookaheadOverride};
 use crate::audio_toolkit::{is_microphone_access_denied, is_no_input_device_error, VadPolicy};
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::history::HistoryManager;
@@ -21,7 +21,7 @@ use crate::utils::{
 };
 use crate::TranscriptionCoordinator;
 use ferrous_opencc::{config::BuiltinConfig, OpenCC};
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::future::Future;
@@ -521,8 +521,29 @@ impl ShortcutAction for TranscribeAction {
         };
         let live_insertion_active =
             !self.post_process && settings.live_insertion && model_supports_streaming;
+        let lookahead_override = app
+            .try_state::<Arc<SessionLookaheadOverride>>()
+            .and_then(|slot| slot.take());
+        if let Some(over) = lookahead_override {
+            if live_insertion_active {
+                info!(
+                    "Lookahead Override {:?} for this Dictation Session (Live Insertion)",
+                    over
+                );
+            } else if self.post_process {
+                debug!(
+                    "Lookahead Override {:?} ignored (Post-Process Dictation)",
+                    over
+                );
+            } else {
+                debug!(
+                    "Lookahead Override {:?} ignored (Live Insertion off or model cannot stream)",
+                    over
+                );
+            }
+        }
         if model_supports_streaming {
-            tm.start_stream(live_insertion_active, settings.live_insertion_lookahead);
+            tm.start_stream(live_insertion_active, settings.live_insertion_lookahead, lookahead_override);
         }
         // Live Insertion is Plain Dictation only. Post-process stays Batch Insertion.
         if !self.post_process && settings.live_insertion {

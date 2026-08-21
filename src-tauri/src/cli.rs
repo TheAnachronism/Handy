@@ -1,5 +1,8 @@
-use clap::Parser;
+use clap::{error::ErrorKind, CommandFactory, Parser, ValueEnum};
+use std::ffi::OsString;
 use std::path::PathBuf;
+
+use crate::live_insertion::LiveInsertionLookahead;
 
 #[derive(Parser, Debug, Clone, Default)]
 #[command(name = "handy", about = "Handy - Speech to Text")]
@@ -23,6 +26,11 @@ pub struct CliArgs {
     /// Cancel the current operation (sent to running instance)
     #[arg(long)]
     pub cancel: bool,
+
+    /// Lookahead Override for one Plain Dictation start (Live Insertion on only).
+    /// Requires --toggle-transcription or --toggle-post-process.
+    #[arg(long, value_enum, value_name = "PRESET")]
+    pub lookahead: Option<LiveInsertionLookahead>,
 
     /// Enable debug mode with verbose logging
     #[arg(long)]
@@ -60,4 +68,110 @@ pub struct CliArgs {
     /// Emit --transcribe-file results as JSON.
     #[arg(long)]
     pub json: bool,
+}
+
+impl CliArgs {
+    pub fn parse_strict() -> Self {
+        Self::try_parse_strict_from(std::env::args_os()).unwrap_or_else(|e| e.exit())
+    }
+
+    pub fn try_parse_strict_from<I, T>(itr: I) -> Result<Self, clap::Error>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<OsString> + Clone,
+    {
+        let args = Self::try_parse_from(itr)?;
+        if args.lookahead.is_some() && !args.toggle_transcription && !args.toggle_post_process {
+            return Err(Self::command().error(
+                ErrorKind::MissingRequiredArgument,
+                "--lookahead requires --toggle-transcription or --toggle-post-process",
+            ));
+        }
+        Ok(args)
+    }
+}
+
+/// Read `--lookahead` from forwarded single-instance argv (already clap-validated
+/// in the sending process).
+pub fn lookahead_from_argv<S: AsRef<str>>(
+    args: impl IntoIterator<Item = S>,
+) -> Option<LiveInsertionLookahead> {
+    let args: Vec<String> = args.into_iter().map(|s| s.as_ref().to_string()).collect();
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        if let Some(rest) = a.strip_prefix("--lookahead=") {
+            return LiveInsertionLookahead::from_str(rest, false).ok();
+        }
+        if a == "--lookahead" {
+            return args
+                .get(i + 1)
+                .and_then(|s| LiveInsertionLookahead::from_str(s, false).ok());
+        }
+        i += 1;
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Result<CliArgs, clap::Error> {
+        let mut argv = vec!["handy"];
+        argv.extend_from_slice(args);
+        CliArgs::try_parse_strict_from(&argv)
+    }
+
+    #[test]
+    fn lookahead_without_start_flag_is_usage_error() {
+        assert!(parse(&["--lookahead", "balanced"]).is_err());
+    }
+
+    #[test]
+    fn invalid_lookahead_is_usage_error() {
+        assert!(parse(&["--toggle-transcription", "--lookahead", "snappy"]).is_err());
+        assert!(parse(&["--toggle-transcription", "--lookahead", "1"]).is_err());
+    }
+
+    #[test]
+    fn toggle_transcription_accepts_each_preset() {
+        for (name, expected) in [
+            ("fastest", LiveInsertionLookahead::Fastest),
+            ("fast", LiveInsertionLookahead::Fast),
+            ("balanced", LiveInsertionLookahead::Balanced),
+            ("accurate", LiveInsertionLookahead::Accurate),
+        ] {
+            let args = parse(&["--toggle-transcription", "--lookahead", name]).unwrap();
+            assert_eq!(args.lookahead, Some(expected), "{name}");
+        }
+    }
+
+    #[test]
+    fn toggle_post_process_accepts_lookahead_without_error() {
+        let args = parse(&["--toggle-post-process", "--lookahead", "fast"]).unwrap();
+        assert_eq!(args.lookahead, Some(LiveInsertionLookahead::Fast));
+    }
+
+    #[test]
+    fn toggle_without_lookahead_leaves_override_absent() {
+        let args = parse(&["--toggle-transcription"]).unwrap();
+        assert_eq!(args.lookahead, None);
+    }
+
+    #[test]
+    fn lookahead_from_forwarded_argv() {
+        assert_eq!(
+            lookahead_from_argv(["handy", "--toggle-transcription", "--lookahead", "balanced"]),
+            Some(LiveInsertionLookahead::Balanced)
+        );
+        assert_eq!(
+            lookahead_from_argv(["handy", "--toggle-transcription", "--lookahead=accurate"]),
+            Some(LiveInsertionLookahead::Accurate)
+        );
+        assert_eq!(
+            lookahead_from_argv(["handy", "--toggle-transcription"]),
+            None
+        );
+    }
 }

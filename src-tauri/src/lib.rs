@@ -818,9 +818,21 @@ pub fn run(cli_args: CliArgs) {
     if !headless_mode {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if args.iter().any(|a| a == "--toggle-transcription") {
-                signal_handle::send_transcription_input(app, "transcribe", "CLI");
+                let lookahead = crate::cli::lookahead_from_argv(args.iter().map(|s| s.as_str()));
+                signal_handle::send_transcription_input_with_lookahead(
+                    app,
+                    "transcribe",
+                    "CLI",
+                    lookahead,
+                );
             } else if args.iter().any(|a| a == "--toggle-post-process") {
-                signal_handle::send_transcription_input(app, "transcribe_with_post_process", "CLI");
+                let lookahead = crate::cli::lookahead_from_argv(args.iter().map(|s| s.as_str()));
+                signal_handle::send_transcription_input_with_lookahead(
+                    app,
+                    "transcribe_with_post_process",
+                    "CLI",
+                    lookahead,
+                );
             } else if args.iter().any(|a| a == "--cancel") {
                 crate::utils::cancel_current_operation(app);
             } else {
@@ -931,8 +943,27 @@ pub fn run(cli_args: CliArgs) {
             WEBVIEW_LOG_STREAMING.store(settings.debug_mode, Ordering::Relaxed);
             let app_handle = app.handle().clone();
             app.manage(TranscriptionCoordinator::new(app_handle.clone()));
+            app.manage(Arc::new(
+                crate::live_insertion::SessionLookaheadOverride::default(),
+            ));
 
             initialize_core_logic(&app_handle);
+
+            if cli_args.toggle_transcription {
+                signal_handle::send_transcription_input_with_lookahead(
+                    &app_handle,
+                    "transcribe",
+                    "CLI",
+                    cli_args.lookahead,
+                );
+            } else if cli_args.toggle_post_process {
+                signal_handle::send_transcription_input_with_lookahead(
+                    &app_handle,
+                    "transcribe_with_post_process",
+                    "CLI",
+                    cli_args.lookahead,
+                );
+            }
 
             // Secure Input monitor (macOS): detects stuck secure input that
             // silently blocks keyed shortcuts, warns the user, and activates

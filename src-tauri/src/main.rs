@@ -5,7 +5,7 @@ use clap::Parser;
 use handy_app_lib::CliArgs;
 
 fn main() {
-    let cli_args = CliArgs::parse();
+    let cli_args = CliArgs::parse_strict();
 
     #[cfg(target_os = "linux")]
     {

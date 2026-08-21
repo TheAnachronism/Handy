@@ -1,4 +1,5 @@
 use crate::actions::ACTION_MAP;
+use crate::live_insertion::{LiveInsertionLookahead, SessionLookaheadOverride};
 use crate::managers::audio::AudioRecordingManager;
 use log::{debug, error, warn};
 use std::sync::mpsc::{self, Sender};
@@ -30,6 +31,7 @@ enum Command {
         hotkey_string: String,
         is_pressed: bool,
         push_to_talk: bool,
+        lookahead: Option<LiveInsertionLookahead>,
     },
     Cancel {
         recording_was_active: bool,
@@ -124,6 +126,7 @@ impl TranscriptionCoordinator {
                             hotkey_string,
                             is_pressed,
                             push_to_talk,
+                            lookahead,
                         } => {
                             let pending_release_binding = pending_release
                                 .as_ref()
@@ -168,7 +171,13 @@ impl TranscriptionCoordinator {
 
                             if push_to_talk {
                                 if is_pressed && matches!(stage, Stage::Idle) {
-                                    start(&app, &mut stage, &binding_id, &hotkey_string);
+                                    start(
+                                        &app,
+                                        &mut stage,
+                                        &binding_id,
+                                        &hotkey_string,
+                                        lookahead,
+                                    );
                                 } else if !is_pressed
                                     && matches!(&stage, Stage::Recording(id) if id == &binding_id)
                                 {
@@ -177,9 +186,20 @@ impl TranscriptionCoordinator {
                             } else if is_pressed {
                                 match &stage {
                                     Stage::Idle => {
-                                        start(&app, &mut stage, &binding_id, &hotkey_string);
+                                        start(
+                                            &app,
+                                            &mut stage,
+                                            &binding_id,
+                                            &hotkey_string,
+                                            lookahead,
+                                        );
                                     }
                                     Stage::Recording(id) if id == &binding_id => {
+                                        if lookahead.is_some() {
+                                            debug!(
+                                                "Lookahead Override ignored (invocation stops a Dictation Session)"
+                                            );
+                                        }
                                         stop(&app, &mut stage, &binding_id, &hotkey_string);
                                     }
                                     _ => {
@@ -223,6 +243,17 @@ impl TranscriptionCoordinator {
         is_pressed: bool,
         push_to_talk: bool,
     ) {
+        self.send_input_with_lookahead(binding_id, hotkey_string, is_pressed, push_to_talk, None);
+    }
+
+    pub fn send_input_with_lookahead(
+        &self,
+        binding_id: &str,
+        hotkey_string: &str,
+        is_pressed: bool,
+        push_to_talk: bool,
+        lookahead: Option<LiveInsertionLookahead>,
+    ) {
         if self
             .tx
             .send(Command::Input {
@@ -230,6 +261,7 @@ impl TranscriptionCoordinator {
                 hotkey_string: hotkey_string.to_string(),
                 is_pressed,
                 push_to_talk,
+                lookahead,
             })
             .is_err()
         {
@@ -256,11 +288,20 @@ impl TranscriptionCoordinator {
     }
 }
 
-fn start(app: &AppHandle, stage: &mut Stage, binding_id: &str, hotkey_string: &str) {
+fn start(
+    app: &AppHandle,
+    stage: &mut Stage,
+    binding_id: &str,
+    hotkey_string: &str,
+    lookahead: Option<LiveInsertionLookahead>,
+) {
     let Some(action) = ACTION_MAP.get(binding_id) else {
         warn!("No action in ACTION_MAP for '{binding_id}'");
         return;
     };
+    if let Some(slot) = app.try_state::<std::sync::Arc<SessionLookaheadOverride>>() {
+        slot.store(lookahead);
+    }
     action.start(app, binding_id, hotkey_string);
     if app
         .try_state::<Arc<AudioRecordingManager>>()

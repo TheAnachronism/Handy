@@ -1,6 +1,6 @@
 use crate::clipboard::type_live_insertion_text;
 use crate::live_insertion::{
-    lookahead_for_live_insertion, should_feed_silence_to_stream, LiveInsertionCommand,
+    lookahead_for_plain_dictation_start, should_feed_silence_to_stream, LiveInsertionCommand,
     LiveInsertionLookahead, LiveInsertionOptions, LiveInsertionPolicy, LiveLookahead,
 };
 use crate::audio_toolkit::{
@@ -211,13 +211,15 @@ impl StreamRouter {
 fn stream_options_for_live_lookahead(
     live_insertion_active: bool,
     model: &Model,
-    preset: LiveInsertionLookahead,
+    settings_preset: LiveInsertionLookahead,
+    override_preset: Option<LiveInsertionLookahead>,
 ) -> StreamOptions {
-    let lookahead = lookahead_for_live_insertion(
+    let lookahead = lookahead_for_plain_dictation_start(
         live_insertion_active,
         model.accepts_ext(ExtSlot::Stream, TRANSCRIBE_EXT_KIND_PARAKEET_STREAM),
         model.accepts_ext(ExtSlot::Stream, TRANSCRIBE_EXT_KIND_PARAKEET_BUFFERED_STREAM),
-        preset,
+        settings_preset,
+        override_preset,
     );
     match lookahead {
         LiveLookahead::Default => StreamOptions::default(),
@@ -873,6 +875,7 @@ impl TranscriptionManager {
         &self,
         live_insertion_active: bool,
         live_insertion_lookahead: LiveInsertionLookahead,
+        lookahead_override: Option<LiveInsertionLookahead>,
     ) {
         if self.router.is_open() || self.active_stream_worker.load(Ordering::Acquire) != 0 {
             warn!("start_stream called while a stream worker is already active");
@@ -898,6 +901,7 @@ impl TranscriptionManager {
                 worker_id,
                 live_insertion_active,
                 live_insertion_lookahead,
+                lookahead_override,
             )
         });
     }
@@ -908,6 +912,7 @@ impl TranscriptionManager {
         worker_id: u64,
         live_insertion_active: bool,
         live_insertion_lookahead: LiveInsertionLookahead,
+        lookahead_override: Option<LiveInsertionLookahead>,
     ) {
         let _worker = StreamWorkerGuard {
             worker_id,
@@ -1046,6 +1051,7 @@ impl TranscriptionManager {
                 live_insertion_active,
                 &session.model(),
                 live_insertion_lookahead,
+                lookahead_override,
             );
             let mut stream = match session.stream(&run_options, &stream_opts) {
                 Ok(s) => s,

@@ -48,6 +48,10 @@ _Avoid_: undo dictation, discard session
 Extra audio a streaming model waits for before promoting Tentative Transcript to Committed Transcript. Live Insertion uses a shorter Lookahead than Batch Insertion so commits happen sooner; accuracy and punctuation can drop. A setting next to Live Insertion picks Fastest / Fast / Balanced / Accurate on the loaded model's training menu (Nemotron Streaming 3.5 GGUF: 0, 3, 6, or 13).
 _Avoid_: right context, att_context (unless naming the model knob)
 
+**Lookahead Override**:
+A CLI `--lookahead` value that replaces the Lookahead setting for one Plain Dictation start. It does not persist, does not change the Settings dropdown, and does not apply if Live Insertion is off, the model cannot stream, or the invocation stops a session.
+_Avoid_: latency flag, att_context CLI
+
 **Silence Feeding**:
 During Live Insertion, every microphone frame — speech and silence — is given to the streaming model for the whole Dictation Session so Lookahead can finish without the user stopping. Silence still does not auto-stop the session or auto-finalize Tentative Transcript.
 _Avoid_: VAD bypass, always-on stream, endpointing

@@ -1,3 +1,4 @@
+use crate::live_insertion::LiveInsertionLookahead;
 use crate::TranscriptionCoordinator;
 #[cfg(unix)]
 use log::debug;
@@ -16,8 +17,17 @@ use std::thread;
 /// Send a transcription input to the coordinator.
 /// Used by signal handlers, CLI flags, and any other external trigger.
 pub fn send_transcription_input(app: &AppHandle, binding_id: &str, source: &str) {
+    send_transcription_input_with_lookahead(app, binding_id, source, None);
+}
+
+pub fn send_transcription_input_with_lookahead(
+    app: &AppHandle,
+    binding_id: &str,
+    source: &str,
+    lookahead: Option<LiveInsertionLookahead>,
+) {
     if let Some(c) = app.try_state::<TranscriptionCoordinator>() {
-        c.send_input(binding_id, source, true, false);
+        c.send_input_with_lookahead(binding_id, source, true, false, lookahead);
     } else {
         warn!("TranscriptionCoordinator not initialized");
     }
