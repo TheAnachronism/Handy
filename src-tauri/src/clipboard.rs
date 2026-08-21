@@ -749,6 +749,22 @@ fn wrap_direct_type_text(text: String) -> String {
     text
 }
 
+/// Copy text to the clipboard without pasting. Used by Live Insertion
+/// `CopyTranscript` at stop.
+pub(crate) fn copy_transcript_to_clipboard(
+    app_handle: &AppHandle,
+    text: &str,
+) -> Result<(), String> {
+    write_text_to_clipboard(app_handle, text)
+}
+
+/// Send the configured auto-submit key after leftover Direct typing.
+pub(crate) fn auto_submit_after_insert(app_handle: &AppHandle) -> Result<(), String> {
+    let settings = get_settings(app_handle);
+    std::thread::sleep(Duration::from_millis(50));
+    with_enigo(app_handle, |enigo| send_return_key(enigo, settings.auto_submit_key))
+}
+
 pub(crate) fn send_return_key(enigo: &mut Enigo, key_type: AutoSubmitKey) -> Result<(), String> {
     match key_type {
         AutoSubmitKey::Enter => {

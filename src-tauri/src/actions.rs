@@ -1,15 +1,19 @@
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::apple_intelligence;
 use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, SoundType};
-use crate::clipboard::type_live_insertion_text;
-use crate::live_insertion::LiveInsertionCommand;
+use crate::clipboard::{
+    auto_submit_after_insert, copy_transcript_to_clipboard, type_live_insertion_text,
+};
+use crate::live_insertion::{LiveInsertionCommand, LiveInsertionOptions};
 use crate::audio_toolkit::{is_microphone_access_denied, is_no_input_device_error, VadPolicy};
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::history::HistoryManager;
 use crate::managers::model::ModelManager;
 use crate::managers::transcription::StreamWorkKind;
 use crate::managers::transcription::TranscriptionManager;
-use crate::settings::{get_settings, AppSettings, OverlayStyle, APPLE_INTELLIGENCE_PROVIDER_ID};
+use crate::settings::{
+    get_settings, AppSettings, ClipboardHandling, OverlayStyle, APPLE_INTELLIGENCE_PROVIDER_ID,
+};
 use crate::shortcut;
 use crate::tray::{change_tray_icon, TrayIconState};
 use crate::utils::{
@@ -520,7 +524,16 @@ impl ShortcutAction for TranscribeAction {
         }
         // Live Insertion is Plain Dictation only. Post-process stays Batch Insertion.
         if !self.post_process && settings.live_insertion {
-            tm.start_live_insertion(true, model_supports_streaming);
+            tm.start_live_insertion(
+                true,
+                model_supports_streaming,
+                LiveInsertionOptions {
+                    trailing_space: settings.append_trailing_space,
+                    auto_submit: settings.auto_submit,
+                    copy_clipboard: settings.clipboard_handling
+                        == ClipboardHandling::CopyToClipboard,
+                },
+            );
         }
         let plan_elapsed = plan_started.elapsed();
 
@@ -855,6 +868,7 @@ impl ShortcutAction for TranscribeAction {
                                                         "Failed to Direct-type leftover: {}",
                                                         e
                                                     );
+                                                    let _ = ah_clone.emit("paste-error", ());
                                                 }
                                             }
                                             LiveInsertionCommand::Type(text) => {
@@ -863,6 +877,26 @@ impl ShortcutAction for TranscribeAction {
                                                 {
                                                     error!(
                                                         "Failed to Direct-type leftover delta: {}",
+                                                        e
+                                                    );
+                                                    let _ = ah_clone.emit("paste-error", ());
+                                                }
+                                            }
+                                            LiveInsertionCommand::AutoSubmit => {
+                                                if let Err(e) =
+                                                    auto_submit_after_insert(&ah_clone)
+                                                {
+                                                    log::warn!(
+                                                        "Live leftover typed, but auto-submit failed: {e}"
+                                                    );
+                                                }
+                                            }
+                                            LiveInsertionCommand::CopyTranscript(text) => {
+                                                if let Err(e) =
+                                                    copy_transcript_to_clipboard(&ah_clone, &text)
+                                                {
+                                                    error!(
+                                                        "Failed to copy transcript to clipboard: {}",
                                                         e
                                                     );
                                                 }

@@ -1154,12 +1154,14 @@ impl TranscriptionManager {
 
     /// Start Live Insertion for a Plain Dictation session.
     /// Post-process bindings must not call this.
-    pub fn start_live_insertion(&self, live_requested: bool, model_streams: bool) {
-        let (policy, commands) = LiveInsertionPolicy::start(
-            live_requested,
-            model_streams,
-            LiveInsertionOptions::default(),
-        );
+    pub fn start_live_insertion(
+        &self,
+        live_requested: bool,
+        model_streams: bool,
+        options: LiveInsertionOptions,
+    ) {
+        let (policy, commands) =
+            LiveInsertionPolicy::start(live_requested, model_streams, options);
         if commands
             .iter()
             .any(|c| matches!(c, LiveInsertionCommand::Inactive))
@@ -1209,8 +1211,17 @@ impl TranscriptionManager {
                 LiveInsertionCommand::Type(text) => {
                     if let Err(err) = type_live_text_on_main_thread(&self.app_handle, &text) {
                         warn!("Live Insertion Direct type failed: {err}");
-                        if let Some(policy) = self.live_insertion.lock().unwrap().as_mut() {
-                            let _ = policy.direct_failed();
+                        let failed_commands = {
+                            let mut guard = self.live_insertion.lock().unwrap();
+                            match guard.as_mut() {
+                                Some(policy) => policy.direct_failed(),
+                                None => Vec::new(),
+                            }
+                        };
+                        for failed in failed_commands {
+                            if matches!(failed, LiveInsertionCommand::ErrorContinue) {
+                                let _ = self.app_handle.emit("paste-error", ());
+                            }
                         }
                     }
                 }
