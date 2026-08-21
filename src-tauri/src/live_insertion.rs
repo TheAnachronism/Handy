@@ -25,13 +25,20 @@ pub enum LiveInsertionCommand {
     Inactive,
 }
 
+/// Consecutive overlay snapshots that must agree before typing past a frozen
+/// library committed prefix (punctuation often stalls `committed` while the
+/// next sentence sits in `tentative`).
+const DISPLAY_AGREEMENT_N: usize = 3;
+
 /// Tracks how much Committed Transcript has already been sent (typed or dropped).
 pub struct LiveInsertionPolicy {
     live_requested: bool,
     model_streams: bool,
     options: LiveInsertionOptions,
-    /// Byte length of Committed Transcript already accounted for.
+    /// Byte length of typable transcript already accounted for.
     acked_len: usize,
+    /// Recent `committed + tentative` snapshots for display-prefix agreement.
+    display_history: Vec<String>,
 }
 
 impl LiveInsertionPolicy {
@@ -45,6 +52,7 @@ impl LiveInsertionPolicy {
             model_streams,
             options,
             acked_len: 0,
+            display_history: Vec::new(),
         };
         let commands = if live_requested && !model_streams {
             vec![LiveInsertionCommand::Inactive]
@@ -58,26 +66,44 @@ impl LiveInsertionPolicy {
         self.live_requested && self.model_streams
     }
 
-    /// Process a StreamTextEvent snapshot. Types only new Committed Delta growth.
+    /// Process a StreamTextEvent snapshot. Types library Committed growth, and
+    /// if that prefix freezes, types a stable prefix of committed+tentative.
     pub fn on_stream_text(
         &mut self,
         committed: &str,
-        _tentative: &str,
+        tentative: &str,
     ) -> Vec<LiveInsertionCommand> {
         if !self.live_active() {
             return Vec::new();
         }
-        if committed.len() <= self.acked_len {
+        let display = format!("{committed}{tentative}");
+        self.display_history.push(display.clone());
+        if self.display_history.len() > DISPLAY_AGREEMENT_N {
+            self.display_history.remove(0);
+        }
+
+        let mut typable_end = 0;
+        if display.starts_with(committed) {
+            typable_end = committed.len();
+        }
+        let stable_end = stable_display_prefix_len(&self.display_history);
+        if stable_end > typable_end {
+            typable_end = stable_end;
+        }
+        if typable_end > display.len() {
+            typable_end = display.len();
+        }
+        if !display.is_char_boundary(typable_end) {
+            typable_end = utf8_floor(&display, typable_end);
+        }
+        if typable_end <= self.acked_len || !display.is_char_boundary(self.acked_len) {
             return Vec::new();
         }
-        if !committed.is_char_boundary(self.acked_len) {
-            return Vec::new();
-        }
-        let delta = committed[self.acked_len..].to_string();
+        let delta = display[self.acked_len..typable_end].to_string();
         if delta.is_empty() {
             return Vec::new();
         }
-        self.acked_len = committed.len();
+        self.acked_len = typable_end;
         vec![LiveInsertionCommand::Type(delta)]
     }
 
@@ -111,6 +137,7 @@ impl LiveInsertionPolicy {
     /// Cancel: do not finalize leftover Tentative Transcript.
     pub fn cancel(&mut self) -> Vec<LiveInsertionCommand> {
         self.acked_len = 0;
+        self.display_history.clear();
         Vec::new()
     }
 
@@ -129,6 +156,38 @@ fn leftover_after_acked(finalized_text: &str, acked_len: usize) -> String {
     } else {
         finalized_text[acked_len..].to_string()
     }
+}
+
+fn utf8_floor(s: &str, mut pos: usize) -> usize {
+    if pos >= s.len() {
+        return s.len();
+    }
+    while pos > 0 && !s.is_char_boundary(pos) {
+        pos -= 1;
+    }
+    pos
+}
+
+fn common_prefix_len(a: &str, b: &str) -> usize {
+    let n = a.len().min(b.len());
+    let mut i = 0;
+    let ab = a.as_bytes();
+    let bb = b.as_bytes();
+    while i < n && ab[i] == bb[i] {
+        i += 1;
+    }
+    utf8_floor(a, i)
+}
+
+fn stable_display_prefix_len(history: &[String]) -> usize {
+    if history.len() < DISPLAY_AGREEMENT_N {
+        return 0;
+    }
+    let mut prefix_n = history[0].len();
+    for text in history.iter().skip(1) {
+        prefix_n = prefix_n.min(common_prefix_len(&history[0], text));
+    }
+    utf8_floor(&history[0], prefix_n)
 }
 
 /// Lookahead the stream worker should request. `Default` is the model's
@@ -417,6 +476,27 @@ mod tests {
                     LiveInsertionCommand::AutoSubmit,
                     copy_cmd("hello there friend"),
                 ],
+            },
+            Case {
+                name: "when Committed Transcript freezes after a period, a stable display prefix still types the next sentence",
+                live_requested: true,
+                model_streams: true,
+                options: no_extras,
+                steps: &[
+                    Step::Stream {
+                        committed: "Hello.",
+                        tentative: " Next",
+                    },
+                    Step::Stream {
+                        committed: "Hello.",
+                        tentative: " Next sentence",
+                    },
+                    Step::Stream {
+                        committed: "Hello.",
+                        tentative: " Next sentence here",
+                    },
+                ],
+                expected: vec![type_cmd("Hello."), type_cmd(" Next")],
             },
             Case {
                 name: "Live Insertion requested but model cannot stream yields Inactive and no live type commands",
