@@ -47,7 +47,9 @@ pub struct CliArgs {
     #[arg(short = 'f', long, value_name = "WAV")]
     pub transcribe_file: Option<PathBuf>,
 
-    /// Model id to load for --transcribe-file (default: the selected model).
+    /// Model id to load for --transcribe-file (default: the selected model),
+    /// or to switch the active model for a --toggle-transcription /
+    /// --toggle-post-process session. Pass an id from --list-models.
     #[arg(long)]
     pub model: Option<String>,
 
@@ -99,6 +101,12 @@ impl CliArgs {
                 "--live-insertion requires --toggle-transcription or --toggle-post-process",
             ));
         }
+        if args.model.is_some() && !has_start && args.transcribe_file.is_none() {
+            return Err(Self::command().error(
+                ErrorKind::MissingRequiredArgument,
+                "--model requires --transcribe-file, --toggle-transcription, or --toggle-post-process",
+            ));
+        }
         Ok(args)
     }
 }
@@ -129,6 +137,24 @@ pub fn lookahead_from_argv<S: AsRef<str>>(
 /// in the sending process).
 pub fn live_insertion_from_argv<S: AsRef<str>>(args: impl IntoIterator<Item = S>) -> bool {
     args.into_iter().any(|s| s.as_ref() == "--live-insertion")
+}
+
+/// Read `--model` from forwarded single-instance argv (already clap-validated
+/// in the sending process).
+pub fn model_from_argv<S: AsRef<str>>(args: impl IntoIterator<Item = S>) -> Option<String> {
+    let args: Vec<String> = args.into_iter().map(|s| s.as_ref().to_string()).collect();
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        if let Some(rest) = a.strip_prefix("--model=") {
+            return Some(rest.to_string());
+        }
+        if a == "--model" {
+            return args.get(i + 1).cloned();
+        }
+        i += 1;
+    }
+    None
 }
 
 
@@ -252,5 +278,35 @@ mod tests {
             "--lookahead",
             "fast",
         ]));
+    }
+
+    #[test]
+    fn model_without_start_or_file_is_usage_error() {
+        assert!(parse(&["--model", "whisper-large-v3"]).is_err());
+    }
+
+    #[test]
+    fn toggle_transcription_accepts_model() {
+        let args = parse(&["--toggle-transcription", "--model", "nemotron"]).unwrap();
+        assert_eq!(args.model.as_deref(), Some("nemotron"));
+    }
+
+    #[test]
+    fn transcribe_file_accepts_model() {
+        let args = parse(&["--transcribe-file", "a.wav", "--model", "nemotron"]).unwrap();
+        assert_eq!(args.model.as_deref(), Some("nemotron"));
+    }
+
+    #[test]
+    fn model_from_forwarded_argv() {
+        assert_eq!(
+            model_from_argv(["handy", "--toggle-transcription", "--model", "nemotron"]),
+            Some("nemotron".to_string())
+        );
+        assert_eq!(
+            model_from_argv(["handy", "--toggle-transcription", "--model=nemotron"]),
+            Some("nemotron".to_string())
+        );
+        assert_eq!(model_from_argv(["handy", "--toggle-transcription"]), None);
     }
 }
