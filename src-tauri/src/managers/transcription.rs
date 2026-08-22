@@ -635,11 +635,23 @@ impl TranscriptionManager {
                         );
                         // Backend::Auto accepts an exact GPU device. Without a
                         // valid exact device, backend selection handles the
-                        // retired generic GPU state and host CPU guard.
-                        let backend = if device.is_some() {
-                            Backend::Auto
-                        } else {
-                            select_transcribe_backend(accelerator)
+                        // retired generic GPU state and host CPU guard. A
+                        // strict NVIDIA selection is additionally gated on the
+                        // device currently having enough free VRAM and low
+                        // utilization (see `nvidia_device_gate`); otherwise the
+                        // model loads on CPU.
+                        let (backend, device) = match device {
+                            Some(device) if !nvidia_device_gate(&device) => {
+                                (Backend::Cpu, None)
+                            }
+                            device => {
+                                let backend = if device.is_some() {
+                                    Backend::Auto
+                                } else {
+                                    select_transcribe_backend(accelerator)
+                                };
+                                (backend, device)
+                            }
                         };
                         (backend, device)
                     }
@@ -2206,6 +2218,76 @@ fn effective_transcribe_accelerator(
     } else {
         setting
     }
+}
+
+/// Gate for strict NVIDIA device selection: transcribe-cpp's GPU backend
+/// reserves up to the full device memory, so loading into an NVIDIA GPU a
+/// resident process (e.g. an LLM RPC server) has already filled fails
+/// nondeterministically (Vulkan OOM) or silently degrades. Before requesting
+/// the strict NVIDIA device, require enough free VRAM for the largest
+/// deployed model (whisper-large-v3, F16 ~3.1 GB) plus scheduling headroom,
+/// and that the GPU is not already saturated. Non-NVIDIA devices - and a
+/// failed `nvidia-smi` query - pass: there is no reliable free-VRAM probe,
+/// and the library's own fallback covers them.
+fn nvidia_device_gate(device: &transcribe_cpp::Device) -> bool {
+    const MIN_FREE_VRAM_MB: u64 = 3_500;
+    const MAX_UTILIZATION_PCT: u32 = 80;
+
+    let name = if device.description.is_empty() {
+        &device.name
+    } else {
+        &device.description
+    };
+    if !name.to_ascii_lowercase().contains("nvidia") {
+        return true;
+    }
+
+    let output = match std::process::Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=name,memory.free,utilization.gpu",
+            "--format=csv,noheader,nounits",
+        ])
+        .output()
+    {
+        Ok(output) if output.status.success() => output,
+        _ => {
+            warn!("nvidia-smi unavailable; skipping VRAM gate for '{name}'");
+            return true;
+        }
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        let mut fields = line.splitn(3, ',');
+        let (Some(gpu_name), Some(free), Some(util)) = (
+            fields.next(),
+            fields.next(),
+            fields.next(),
+        ) else {
+            continue;
+        };
+        let (Ok(free_mb), Ok(utilization)) = (
+            free.trim().parse::<u64>(),
+            util.trim().parse::<u32>(),
+        ) else {
+            continue;
+        };
+        if !gpu_name.trim().eq_ignore_ascii_case(name) {
+            continue;
+        }
+        let ok = free_mb >= MIN_FREE_VRAM_MB && utilization < MAX_UTILIZATION_PCT;
+        if !ok {
+            info!(
+                "VRAM gate: '{name}' has {free_mb}MB free / {utilization}% utilization \
+                 (needs >= {MIN_FREE_VRAM_MB}MB free and < {MAX_UTILIZATION_PCT}%); \
+                 falling back to CPU"
+            );
+        }
+        return ok;
+    }
+
+    warn!("nvidia-smi reported no GPU matching '{name}'; skipping VRAM gate");
+    true
 }
 
 fn is_transcribe_gpu_device(device: &transcribe_cpp::Device) -> bool {
