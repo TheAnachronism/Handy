@@ -12,7 +12,8 @@ use crate::managers::model::ModelManager;
 use crate::managers::transcription::StreamWorkKind;
 use crate::managers::transcription::TranscriptionManager;
 use crate::settings::{
-    get_settings, AppSettings, ClipboardHandling, OverlayStyle, APPLE_INTELLIGENCE_PROVIDER_ID,
+    get_settings, write_settings, AppSettings, ClipboardHandling, OverlayStyle,
+    APPLE_INTELLIGENCE_PROVIDER_ID,
 };
 use crate::shortcut;
 use crate::tray::{change_tray_icon, TrayIconState};
@@ -476,6 +477,36 @@ impl ShortcutAction for TranscribeAction {
         let start_time = Instant::now();
         debug!("TranscribeAction::start called for binding: {}", binding_id);
 
+        // Take session overrides before loading the model: a CLI `--model`
+        // switch must be persisted before initiate_model_load picks up the
+        // selected model.
+        let session_overrides = app
+            .try_state::<Arc<SessionLookaheadOverride>>()
+            .map(|slot| slot.take())
+            .unwrap_or_default();
+        if let Some(model_id) = &session_overrides.model_id {
+            let mut settings = get_settings(app);
+            if model_id != &settings.selected_model {
+                if app
+                    .state::<Arc<ModelManager>>()
+                    .get_model_info(model_id)
+                    .is_some()
+                {
+                    info!(
+                        "Switching active model for this Dictation Session (CLI): {} -> {model_id}",
+                        settings.selected_model
+                    );
+                    settings.selected_model = model_id.clone();
+                    write_settings(app, settings);
+                } else {
+                    warn!(
+                        "CLI --model: unknown model id '{model_id}'; keeping '{}'",
+                        settings.selected_model
+                    );
+                }
+            }
+        }
+
         // Load model in the background
         let tm = app.state::<Arc<TranscriptionManager>>();
         let rm = app.state::<Arc<AudioRecordingManager>>();
@@ -519,10 +550,6 @@ impl ShortcutAction for TranscribeAction {
         } else {
             VadPolicy::Offline
         };
-        let session_overrides = app
-            .try_state::<Arc<SessionLookaheadOverride>>()
-            .map(|slot| slot.take())
-            .unwrap_or_default();
         let live_insertion_requested =
             crate::live_insertion::live_insertion_requested_for_plain_dictation_start(
                 self.post_process,

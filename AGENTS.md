@@ -180,13 +180,15 @@ Handy supports command-line parameters on all platforms for integration with scr
 | `--toggle-transcription` | Toggle recording on/off on a running instance              |
 | `--toggle-post-process`  | Toggle recording with post-processing on/off               |
 | `--cancel`               | Cancel the current operation on a running instance         |
+| `--quit`                 | Quit the running instance (exits immediately if none is running) |
+| `--model <ID>`           | Model id for a `--transcribe-file` run, or the active model for one Dictation Session started via `--toggle-transcription` / `--toggle-post-process` (persisted like the in-app model switch; unknown ids are rejected with a warning) |
 | `--start-hidden`         | Launch without showing the main window (tray icon visible) |
 | `--no-tray`              | Launch without system tray (closing window quits the app)  |
 | `--debug`                | Enable debug mode with verbose (Trace) logging             |
 
 **Key design decisions:**
 
-- CLI flags are runtime-only overrides — they do NOT modify persisted settings
+- CLI flags are runtime-only overrides — they do NOT modify persisted settings (exception: `--model` with a start action persists the new active model, exactly like the in-app model switch)
 - Remote control flags work via `tauri_plugin_single_instance`: second instance sends args, then exits
 - `send_transcription_input()` in `signal_handle.rs` is shared between signal handlers and CLI
 

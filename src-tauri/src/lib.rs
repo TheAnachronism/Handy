@@ -825,6 +825,7 @@ pub fn run(cli_args: CliArgs) {
                     "CLI",
                     crate::live_insertion::SessionStartOverrides {
                         lookahead: crate::cli::lookahead_from_argv(argv.clone()),
+                        model_id: crate::cli::model_from_argv(argv.clone()),
                         live_insertion: crate::cli::live_insertion_from_argv(argv),
                     },
                 );
@@ -836,6 +837,7 @@ pub fn run(cli_args: CliArgs) {
                     "CLI",
                     crate::live_insertion::SessionStartOverrides {
                         lookahead: crate::cli::lookahead_from_argv(argv.clone()),
+                        model_id: crate::cli::model_from_argv(argv.clone()),
                         live_insertion: crate::cli::live_insertion_from_argv(argv),
                     },
                 );
@@ -962,6 +964,7 @@ pub fn run(cli_args: CliArgs) {
                     "CLI",
                     crate::live_insertion::SessionStartOverrides {
                         lookahead: cli_args.lookahead,
+                        model_id: cli_args.model.clone(),
                         live_insertion: cli_args.live_insertion,
                     },
                 );
@@ -972,6 +975,7 @@ pub fn run(cli_args: CliArgs) {
                     "CLI",
                     crate::live_insertion::SessionStartOverrides {
                         lookahead: cli_args.lookahead,
+                        model_id: cli_args.model.clone(),
                         live_insertion: cli_args.live_insertion,
                     },
                 );

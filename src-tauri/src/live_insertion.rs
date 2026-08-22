@@ -298,10 +298,11 @@ pub fn should_feed_silence_to_stream(live_insertion_active: bool) -> bool {
 }
 
 /// CLI overrides for one Plain Dictation **start**. Do not persist.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SessionStartOverrides {
     pub lookahead: Option<LiveInsertionLookahead>,
     pub live_insertion: bool,
+    pub model_id: Option<String>,
 }
 
 /// Whether Live Insertion should run for this Plain Dictation start.
