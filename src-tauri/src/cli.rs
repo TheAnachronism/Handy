@@ -73,6 +73,11 @@ pub struct CliArgs {
     /// Emit --transcribe-file results as JSON.
     #[arg(long)]
     pub json: bool,
+
+    /// Quit the running Handy instance. If no instance is running, exit
+    /// without starting the app. Cannot be combined with other actions.
+    #[arg(long)]
+    pub quit: bool,
 }
 
 impl CliArgs {
@@ -97,6 +102,22 @@ impl CliArgs {
             return Err(Self::command().error(
                 ErrorKind::MissingRequiredArgument,
                 "--live-insertion requires --toggle-transcription or --toggle-post-process",
+            ));
+        }
+        if args.quit
+            && (has_start
+                || args.cancel
+                || args.transcribe_file.is_some()
+                || args.list_devices
+                || args.list_models
+                || args.model.is_some()
+                || args.device_index.is_some()
+                || args.repeat.is_some()
+                || args.json)
+        {
+            return Err(Self::command().error(
+                ErrorKind::ArgumentConflict,
+                "--quit cannot be combined with other actions",
             ));
         }
         Ok(args)
@@ -252,5 +273,20 @@ mod tests {
             "--lookahead",
             "fast",
         ]));
+    }
+
+    #[test]
+    fn quit_alone_is_accepted() {
+        let args = parse(&["--quit"]).unwrap();
+        assert!(args.quit);
+    }
+
+    #[test]
+    fn quit_conflicts_with_actions() {
+        assert!(parse(&["--quit", "--toggle-transcription"]).is_err());
+        assert!(parse(&["--quit", "--cancel"]).is_err());
+        assert!(parse(&["--quit", "--transcribe-file", "a.wav"]).is_err());
+        assert!(parse(&["--quit", "--list-models"]).is_err());
+        assert!(parse(&["--quit", "--model", "nemotron"]).is_err());
     }
 }
