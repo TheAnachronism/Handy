@@ -88,8 +88,10 @@ Handy supports command-line flags for controlling a running instance and customi
 handy --toggle-transcription    # Toggle recording on/off
 handy --toggle-transcription --lookahead balanced  # One session: Balanced Lookahead (Live Insertion)
 handy --toggle-transcription --live-insertion  # One session: enable Live Insertion
+handy --toggle-transcription --model whisper-large-v3-turbo  # One session: use this model
 handy --toggle-post-process     # Toggle recording with post-processing on/off
 handy --cancel                  # Cancel the current operation
+handy --quit                    # Quit the running instance (no-op if none is running)
 ```
 
 **Startup flags:**
