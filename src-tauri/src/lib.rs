@@ -817,7 +817,9 @@ pub fn run(cli_args: CliArgs) {
     // instance instead.
     if !headless_mode {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if args.iter().any(|a| a == "--toggle-transcription") {
+            if args.iter().any(|a| a == "--quit") {
+                app.exit(0);
+            } else if args.iter().any(|a| a == "--toggle-transcription") {
                 let argv = args.iter().map(|s| s.as_str());
                 signal_handle::send_transcription_input_with_overrides(
                     app,
@@ -905,6 +907,13 @@ pub fn run(cli_args: CliArgs) {
                     std::process::exit(code);
                 });
                 return Ok(());
+            }
+
+            // CLI --quit with no running instance: nothing to quit. The
+            // single-instance plugin would have forwarded the args to a live
+            // app instead, so reaching here means no app was running.
+            if cli_args.quit {
+                std::process::exit(0);
             }
 
             // Create main window programmatically so we can set data_directory
