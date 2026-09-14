@@ -1,11 +1,11 @@
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::apple_intelligence;
 use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, SoundType};
+use crate::audio_toolkit::{is_microphone_access_denied, is_no_input_device_error, VadPolicy};
 use crate::clipboard::{
     auto_submit_after_insert, copy_transcript_to_clipboard, type_live_insertion_text,
 };
 use crate::live_insertion::{LiveInsertionCommand, LiveInsertionOptions, SessionLookaheadOverride};
-use crate::audio_toolkit::{is_microphone_access_denied, is_no_input_device_error, VadPolicy};
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::history::HistoryManager;
 use crate::managers::model::ModelManager;
@@ -559,7 +559,11 @@ impl ShortcutAction for TranscribeAction {
             }
         }
         if model_supports_streaming {
-            tm.start_stream(live_insertion_active, settings.live_insertion_lookahead, lookahead_override);
+            tm.start_stream(
+                live_insertion_active,
+                settings.live_insertion_lookahead,
+                lookahead_override,
+            );
         }
         // Live Insertion is Plain Dictation only. Post-process stays Batch Insertion.
         if live_insertion_requested {
@@ -826,7 +830,7 @@ impl ShortcutAction for TranscribeAction {
                             debug!(
                                 "Transcription completed in {:?}: '{}'",
                                 transcription_time.elapsed(),
-                                transcription
+                                utils::redact_text(&transcription)
                             );
 
                             if post_process {

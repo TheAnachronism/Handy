@@ -17,7 +17,12 @@ use std::thread;
 /// Send a transcription input to the coordinator.
 /// Used by signal handlers, CLI flags, and any other external trigger.
 pub fn send_transcription_input(app: &AppHandle, binding_id: &str, source: &str) {
-    send_transcription_input_with_overrides(app, binding_id, source, SessionStartOverrides::default());
+    send_transcription_input_with_overrides(
+        app,
+        binding_id,
+        source,
+        SessionStartOverrides::default(),
+    );
 }
 
 pub fn send_transcription_input_with_overrides(
@@ -27,7 +32,7 @@ pub fn send_transcription_input_with_overrides(
     overrides: SessionStartOverrides,
 ) {
     if let Some(c) = app.try_state::<TranscriptionCoordinator>() {
-        c.send_input_with_overrides(binding_id, source, true, false, overrides);
+        c.send_external_input_with_overrides(binding_id, source, overrides);
     } else {
         warn!("TranscriptionCoordinator not initialized");
     }

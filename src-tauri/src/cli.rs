@@ -131,7 +131,6 @@ pub fn live_insertion_from_argv<S: AsRef<str>>(args: impl IntoIterator<Item = S>
     args.into_iter().any(|s| s.as_ref() == "--live-insertion")
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,7 +244,10 @@ mod tests {
             "--lookahead",
             "fast",
         ]));
-        assert!(!live_insertion_from_argv(["handy", "--toggle-transcription"]));
+        assert!(!live_insertion_from_argv([
+            "handy",
+            "--toggle-transcription"
+        ]));
         assert!(!live_insertion_from_argv([
             "handy",
             "--toggle-transcription",

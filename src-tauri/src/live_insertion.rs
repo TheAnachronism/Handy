@@ -18,7 +18,10 @@ pub enum LiveInsertionCommand {
     /// Direct-type a Committed Delta during the Dictation Session.
     Type(String),
     /// Direct-type leftover text on a normal stop (finalized Tentative Transcript).
-    TypeLeftover { text: String, trailing_space: bool },
+    TypeLeftover {
+        text: String,
+        trailing_space: bool,
+    },
     AutoSubmit,
     CopyTranscript(String),
     /// A Direct increment failed; keep the Dictation Session going.
@@ -198,9 +201,14 @@ fn stable_display_prefix_len(history: &[String]) -> usize {
 pub enum LiveLookahead {
     Default,
     /// Cache-aware (Nemotron): `att_context_right` in encoder frames.
-    CacheAware { att_context_right: i32 },
+    CacheAware {
+        att_context_right: i32,
+    },
     /// Chunked Unified: milliseconds; left stays the model default (large).
-    ChunkedBuffered { chunk_ms: i32, right_ms: i32 },
+    ChunkedBuffered {
+        chunk_ms: i32,
+        right_ms: i32,
+    },
 }
 
 /// User-facing Lookahead preset. Maps onto each family's training menu.

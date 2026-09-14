@@ -1,11 +1,11 @@
+use crate::audio_toolkit::{
+    apply_custom_words, detect_output_language, normalize_transcription_output,
+    remove_filler_words, OutputLanguageEvidence,
+};
 use crate::clipboard::type_live_insertion_text;
 use crate::live_insertion::{
     lookahead_for_plain_dictation_start, should_feed_silence_to_stream, LiveInsertionCommand,
     LiveInsertionLookahead, LiveInsertionOptions, LiveInsertionPolicy, LiveLookahead,
-};
-use crate::audio_toolkit::{
-    apply_custom_words, detect_output_language, normalize_transcription_output,
-    remove_filler_words, OutputLanguageEvidence,
 };
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::model::{EngineType, ModelManager};
@@ -207,7 +207,6 @@ impl StreamRouter {
     }
 }
 
-
 fn stream_options_for_live_lookahead(
     live_insertion_active: bool,
     model: &Model,
@@ -217,7 +216,10 @@ fn stream_options_for_live_lookahead(
     let lookahead = lookahead_for_plain_dictation_start(
         live_insertion_active,
         model.accepts_ext(ExtSlot::Stream, TRANSCRIBE_EXT_KIND_PARAKEET_STREAM),
-        model.accepts_ext(ExtSlot::Stream, TRANSCRIBE_EXT_KIND_PARAKEET_BUFFERED_STREAM),
+        model.accepts_ext(
+            ExtSlot::Stream,
+            TRANSCRIBE_EXT_KIND_PARAKEET_BUFFERED_STREAM,
+        ),
         settings_preset,
         override_preset,
     );
@@ -241,7 +243,6 @@ fn stream_options_for_live_lookahead(
         },
     }
 }
-
 
 enum LoadedEngine {
     /// Whisper-family models (whisper, breeze-asr, custom .bin/.gguf) via
@@ -568,13 +569,26 @@ impl TranscriptionManager {
             },
         );
 
-        let model_info = self
-            .model_manager
-            .get_model_info(model_id)
-            .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
+        let model_info = match self.model_manager.get_model_info(model_id) {
+            Some(model_info) => model_info,
+            None => {
+                let error_msg = format!("Model not found: {}", model_id);
+                let _ = self.app_handle.emit(
+                    "model-state-changed",
+                    ModelStateEvent {
+                        event_type: "loading_failed".to_string(),
+                        model_id: Some(model_id.to_string()),
+                        model_name: None,
+                        error: Some(error_msg.clone()),
+                    },
+                );
+                return Err(anyhow::anyhow!(error_msg));
+            }
+        };
 
-        if !model_info.is_downloaded {
-            let error_msg = "Model not downloaded";
+        // Every failure after loading starts must emit a terminal event so the
+        // frontend can never remain in its loading state.
+        let emit_loading_failed = |error_msg: &str| {
             let _ = self.app_handle.emit(
                 "model-state-changed",
                 ModelStateEvent {
@@ -584,10 +598,18 @@ impl TranscriptionManager {
                     error: Some(error_msg.to_string()),
                 },
             );
+        };
+
+        if !model_info.is_downloaded {
+            let error_msg = "Model not downloaded";
+            emit_loading_failed(error_msg);
             return Err(anyhow::anyhow!(error_msg));
         }
 
-        let model_path = self.model_manager.get_model_path(model_id)?;
+        let model_path = self
+            .model_manager
+            .get_model_path(model_id)
+            .inspect_err(|error| emit_loading_failed(&error.to_string()))?;
 
         // Drop the current engine BEFORE building the new one so transcribe-cpp
         // frees the previous native context first — avoids holding two models at
@@ -603,17 +625,6 @@ impl TranscriptionManager {
         }
 
         // Create appropriate engine based on model type
-        let emit_loading_failed = |error_msg: &str| {
-            let _ = self.app_handle.emit(
-                "model-state-changed",
-                ModelStateEvent {
-                    event_type: "loading_failed".to_string(),
-                    model_id: Some(model_id.to_string()),
-                    model_name: Some(model_info.name.clone()),
-                    error: Some(error_msg.to_string()),
-                },
-            );
-        };
 
         let loaded_engine = match model_info.engine_type {
             EngineType::TranscribeCpp => {
@@ -1250,8 +1261,7 @@ impl TranscriptionManager {
         model_streams: bool,
         options: LiveInsertionOptions,
     ) {
-        let (policy, commands) =
-            LiveInsertionPolicy::start(live_requested, model_streams, options);
+        let (policy, commands) = LiveInsertionPolicy::start(live_requested, model_streams, options);
         if commands
             .iter()
             .any(|c| matches!(c, LiveInsertionCommand::Inactive))
@@ -1659,7 +1669,10 @@ impl TranscriptionManager {
         if final_result.is_empty() {
             info!("Transcription result is empty");
         } else {
-            info!("Transcription result: {}", final_result);
+            info!(
+                "Transcription result: {}",
+                crate::utils::redact_text(&final_result)
+            );
         }
 
         self.maybe_unload_immediately("transcription");
@@ -1789,10 +1802,6 @@ fn normalize_cjk_language(language: &str) -> &str {
     }
 }
 
-fn base_language_code(language: &str) -> &str {
-    language.split(&['-', '_'][..]).next().unwrap_or(language)
-}
-
 /// Resolve the persisted language intent into the language a specific model can
 /// use without writing the coerced value back to settings.
 fn effective_language_for_model(
@@ -1830,7 +1839,8 @@ fn resolve_output_language_evidence(
     if let Some(language) = applied_language_hint.filter(|lang| !lang.is_empty() && *lang != "auto")
     {
         if settings.selected_language != "auto"
-            && base_language_code(&settings.selected_language) == base_language_code(language)
+            && crate::managers::model::canonical_language_code(&settings.selected_language)
+                == crate::managers::model::canonical_language_code(language)
         {
             return OutputLanguageEvidence::UserSelected(language.to_string());
         }
@@ -2381,6 +2391,22 @@ mod tests {
     }
 
     #[test]
+    fn norwegian_alias_is_recorded_as_user_selected_evidence() {
+        let settings = AppSettings {
+            selected_language: "no".to_string(),
+            ..Default::default()
+        };
+
+        let evidence =
+            resolve_output_language_evidence(&settings, Some("nb"), &languages(&["nb"]), false);
+
+        assert_eq!(
+            evidence,
+            OutputLanguageEvidence::UserSelected("nb".to_string())
+        );
+    }
+
+    #[test]
     fn auto_language_without_detection_skips_gated_filler_removal() {
         let settings = AppSettings {
             selected_language: "auto".to_string(),
@@ -2637,7 +2663,6 @@ impl Drop for TranscriptionManager {
         }
     }
 }
-
 
 fn queue_live_type_on_main_thread(app: &AppHandle, text: String) {
     let app_clone = app.clone();
