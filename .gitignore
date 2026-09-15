@@ -40,6 +40,8 @@ blob-report/
 .direnv
 .envrc
 
+.scratch
+
 # Nix build output
 result
 

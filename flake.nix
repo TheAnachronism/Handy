@@ -10,7 +10,7 @@
     # See: https://github.com/nix-community/bun2nix
     bun2nix = {
       url = "github:nix-community/bun2nix/2.0.8";
-      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     };
   };
 
