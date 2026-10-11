@@ -1,3 +1,5 @@
 # Live Insertion uses Direct typing
 
 Batch Insertion honors the user's Paste Method (clipboard chords, Direct, or None). Live Insertion always injects via Direct keystroke typing, including leftover text on session stop and even when Paste Method is None, because clipboard paste is built for one blob and is a poor fit for many committed increments. Auto-submit still runs once at session end; `append_trailing_space` applies only to that last insertion. If Copy to Clipboard is on, the full model transcript is copied once at stop, not per delta.
+
+Worker progress drives Direct typing in the parent process. When Chinese script conversion is enabled and the output language is unknown, Live Insertion waits for confident language detection before typing a committed prefix. That session keeps the same conversion decision for streamed text and the final leftover, so text already typed is not rewritten into a different script at stop. The overlay continues showing preview text while detection is pending.
