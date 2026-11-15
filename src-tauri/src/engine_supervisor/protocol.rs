@@ -85,6 +85,9 @@ pub enum Response {
     },
     Ok,
     Error(String),
+    /// A run, feed or finalize failed in the compute backend (e.g. a lost
+    /// GPU device). The worker answered, but its backend may be unusable.
+    BackendError(String),
 }
 
 /// Serializable mirror of `transcribe_cpp::Device` (which holds a
@@ -157,6 +160,10 @@ pub struct LoadedInfo {
     pub supports_parakeet_stream: bool,
     pub supports_parakeet_buffered_stream: bool,
     pub supports_initial_prompt: bool,
+    /// Whether the model handles audio longer than its native window in one
+    /// run (whisper today); other models' long audio is chunked by Handy.
+    pub supports_long_form: bool,
+    pub supports_vocabulary: bool,
 }
 
 /// Encode one frame. Refuses a section the reader would refuse, so an
